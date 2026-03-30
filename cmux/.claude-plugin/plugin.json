@@ -1,0 +1,7 @@
+{
+  "name": "cmux",
+  "description": "Terminal multiplexer control — manipulate panes, splits, workspaces, tabs, surfaces, browser panels, notifications, and sidebar status inside cmux.",
+  "author": {
+    "name": "bostondv"
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "name": "bdvstack",
+  "description": "Boston's personal Claude Code plugins",
+  "owner": {
+    "name": "Boston Dell-Vandenberg"
+  },
+  "plugins": [
+    {
+      "name": "autopilot",
+      "source": "./autopilot",
+      "description": "Autonomous SWE agent loop — turns a feature description into a reviewed PR. Interviews once, then runs autonomously: explores codebase, spawns parallel build teams, verifies quality, gets fresh-eyes code review, and iterates until work passes.",
+      "version": "1.1.0",
+      "author": {
+        "name": "bostondv"
+      }
+    },
+    {
+      "name": "cmux",
+      "source": "./cmux",
+      "description": "Terminal multiplexer control — manipulate panes, splits, workspaces, tabs, surfaces, browser panels, notifications, and sidebar status inside cmux.",
+      "version": "1.0.0",
+      "author": {
+        "name": "bostondv"
+      }
+    },
+    {
+      "name": "sync-claude",
+      "source": "./sync-claude",
+      "description": "Sync Claude Code settings between machines via dotfiles git repo. Copies files (no symlinks) between ~/.claude and ~/dotfiles/.claude.",
+      "version": "2.0.0",
+      "author": {
+        "name": "bostondv"
+      }
+    },
+    {
+      "name": "todos",
+      "source": "./todos",
+      "description": "Persistent file-based todo management with groups, priorities, duplicate detection, auto-archive, and autonomous worktree-based implementation.",
+      "version": "1.0.0",
+      "author": {
+        "name": "bostondv"
+      }
+    },
+    {
+      "name": "stacked-prs",
+      "source": "./stacked-prs",
+      "description": "Manage stacked PR workflows — create, rebase, push, and track multi-PR feature development with auto-detected branch structure.",
+      "version": "1.0.0",
+      "author": {
+        "name": "bostondv"
+      }
+    },
+    {
+      "name": "pr-patrol",
+      "source": "./pr-patrol",
+      "description": "Automated PR lifecycle management — babysit open PRs (rebase, fix CI, address reviews) and sweep merged PRs for missed review feedback.",
+      "version": "1.0.0",
+      "author": {
+        "name": "bostondv"
+      }
+    }
+  ]
+}

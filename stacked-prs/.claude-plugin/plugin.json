@@ -1,0 +1,7 @@
+{
+  "name": "stacked-prs",
+  "description": "Manage stacked PR workflows — create, rebase, push, and track multi-PR feature development with auto-detected branch structure.",
+  "author": {
+    "name": "bostondv"
+  }
+}

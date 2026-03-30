@@ -1,0 +1,8 @@
+{
+  "name": "sync-claude",
+  "version": "2.0.1",
+  "description": "Sync Claude Code settings between machines via dotfiles git repo. Copies files (no symlinks) between ~/.claude and ~/dotfiles/.claude.",
+  "author": {
+    "name": "bostondv"
+  }
+}
