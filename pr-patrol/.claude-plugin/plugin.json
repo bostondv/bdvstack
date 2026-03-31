@@ -1,6 +1,6 @@
 {
   "name": "pr-patrol",
-  "version": "1.0.0",
+  "version": "2.1.1",
   "description": "Automated PR lifecycle management — babysit open PRs (rebase, fix CI, address reviews) and sweep merged PRs for missed review feedback.",
   "author": {
     "name": "bostondv"

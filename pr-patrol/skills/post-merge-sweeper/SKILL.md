@@ -1,12 +1,86 @@
 ---
 name: post-merge-sweeper
-description: Scan recently merged PRs for review comments that were missed or unaddressed, then create follow-up PRs to fix them. Designed for use with /loop (e.g., /loop 2h /post-merge-sweeper).
+description: "Scan recently merged PRs for missed/unaddressed review comments, then create follow-up PRs. Invoke: `/post-merge-sweeper --repo owner/repo` or `/loop 30m /post-merge-sweeper --repo owner/repo`"
 user-invocable: true
+argument-hint: "--repo owner/repo [--since 48h] [--yolo]"
 ---
 
 # Post-Merge Sweeper
 
 Catch review feedback that slipped through the cracks after merge.
+
+## Execution Model
+
+The **invoking Claude instance** (main conversation) does the setup, then hands off to background agents. `TeamCreate`, `TaskCreate`, and `SendMessage` must be called from the main conversation — background agents don't have these tools unless spawned with `team_name`.
+
+### Invoking Claude — Setup (blocking, but fast)
+
+#### 1. Guard: create or reuse team
+
+**CRITICAL: You MUST call `TeamCreate` here and confirm it succeeds (or handle the "already exists" case below) BEFORE proceeding to any later step. Do NOT skip ahead to spawning agents — agents spawned with `team_name` will fail if the team doesn't exist yet.**
+
+```
+TeamCreate(team_name: "sweeper-<repo-slug>")
+```
+Use repo slug (e.g. `sweeper-carrot` for `instacart/carrot`). Multiple repos → one team per repo.
+
+If `TeamCreate` succeeds → proceed to Step 2.
+
+If `TeamCreate` fails with "team already exists":
+- Call `TaskList` on the existing team
+- If **any task is `in_progress`** and its `started_at` is **< 20 minutes ago** → **exit as no-op** (previous run still working)
+- If tasks are `in_progress` but `started_at` is ≥ 20 minutes ago → those workers likely crashed; reset them to `pending` with `TaskUpdate` and proceed
+- If all tasks are `completed` or none exist → proceed with the existing team
+
+#### 2. Load state + discover merged PRs
+
+Read `~/.claude/cache/post-merge-sweeper/seen.json`. Create if it doesn't exist.
+
+Discover merged PRs in the time window, filter already-seen comment IDs.
+
+#### 3. Create tasks and spawn workers
+
+For each PR with unseen candidate comments, create a task and spawn a worker:
+
+```
+TaskCreate(title: "Analyze instacart/carrot#<number>", description: "started_at: <ISO timestamp>\n<PR title>\nmergedAt: <ts>\nthreads: <json of candidate threads>\nseen_ids: <json list to skip>")
+
+Agent(
+  team_name: "sweeper-<repo-slug>",
+  name: "worker-<number>",
+  model: "sonnet",
+  run_in_background: true,
+  prompt: "..." // include all per-PR instructions below + PR-specific data
+)
+```
+
+Spawn all workers in parallel (sweeper workers are read-only — no worktree conflicts).
+
+#### 4. Collect results
+
+Worker messages are delivered automatically to the main conversation. Each result includes findings (comment ID, author, path, line, classification, suggested fix).
+
+#### 5. Output report + update state
+
+If any findings, output report and mark surfaced comments in `seen.json`. Notify per `references/notifications.md` (title: `"Sweeper"`). Silent on clean sweeps.
+
+#### 6. Shut down workers
+
+```
+SendMessage(to: "worker-<number>", message: {type: "shutdown_request"})
+```
+
+Do **not** call `TeamDelete` — the team persists for the next run.
+
+### Worker Responsibilities
+
+Each worker:
+1. Claims its task via `TaskUpdate(owner: "worker-<number>", status: "in_progress")`
+2. Analyzes the PR per the Per-PR Analysis steps below (read-only — fetches file content, checks if concerns were addressed)
+3. Reports findings to main conversation via `SendMessage(to: "main")`
+4. Marks task complete: `TaskUpdate(status: "completed")`
+
+Workers only read file content — they never write files or create PRs (that's triggered later by user or `--yolo`). No worktree needed for workers.
 
 ## Invocation
 
@@ -121,9 +195,7 @@ Gather comments that might have been missed:
 
 3. **Skip already-seen** — check each comment's ID against `seen.json`. Skip if already surfaced, fixed, or dismissed.
 
-4. **Skip bot comments** — ignore comments from known bots (dependabot, renovate, github-actions, etc.)
-
-5. **Skip your own comments** — ignore comments authored by you (the PR author).
+4. **Apply skip rules** from `references/review-classification.md` (bots, self-comments, praise, hedged comments).
 
 ### Step 2: Filter — Was It Actually Addressed?
 
@@ -139,24 +211,11 @@ For each candidate comment, determine if it was addressed in the final merged co
    - If the comment asks a question, it may have been answered verbally but not in code — keep it as a candidate unless the code clearly addresses the concern
    - If the comment points out a bug and the code at that location has been modified since, it was likely addressed
 
-3. **Confidence scoring** — only keep comments where you have **reasonable confidence** they were missed:
-   - **High confidence (keep):** Comment suggests specific change, change is not present in final code
-   - **High confidence (keep):** Comment points out a bug, code is unchanged
-   - **Medium confidence (keep):** Comment raises architectural concern, no evidence it was addressed
-   - **Low confidence (drop):** Comment is a question that may have been answered in conversation
-   - **Low confidence (drop):** Comment is a nitpick (style-only, subjective preference)
-   - **Low confidence (drop):** Comment says "nit:", "optional:", "take it or leave it", or similar hedging language
-   - **Drop:** Comment is praise ("nice!", "LGTM", "good call")
+3. **Confidence scoring** — see `references/review-classification.md` (confidence scoring section). Only keep comments at high or medium confidence.
 
 ### Step 3: Classify Severity
 
-For comments that pass the filter, classify:
-
-- **Meaningful** (keep): bug, logic error, security concern, missing error handling, missing test, incorrect behavior, wrong type, data loss risk
-- **Improvement** (keep): performance issue, better API usage, missing validation, readability concern with substance
-- **Cosmetic** (drop): style preferences already merged, formatting on merged code, naming preferences that are subjective
-
-Only surface **meaningful** and **improvement** comments.
+Classify using `references/review-classification.md` (severity section). Only surface **meaningful** and **improvement** comments — drop **cosmetic**.
 
 ### Step 4: Output Report
 
@@ -191,22 +250,12 @@ Group findings by PR:
 
 When the user says "fix it" / "fix all" / "fix #NNN", or when `--yolo` is active:
 
-1. **Clone the repo:**
+1. **Set up worktree** using `references/worktree-model.md` with worktree name `sweeper-<repo-slug>`. Checkout the default branch, then create the fix branch:
    ```bash
-   WORK=$(mktemp -d)
-   cd "$WORK"
-   gh repo clone <repo> . -- --depth=50
-   git checkout <default-branch>
-   git pull
+   git checkout -b bostondv/sweep-<pr-number>
    ```
 
-2. **Create a branch:**
-   ```bash
-   GITHUB_USER="${GITHUB_USERNAME:-$(whoami)}"
-   git checkout -b "$GITHUB_USER/sweep-<pr-number>"
-   ```
-
-3. **Apply all fixes** for that PR:
+2. **Apply all fixes** for that PR:
    - Read each file referenced by the comments
    - Make the suggested changes
    - Run available local checks if detectable
@@ -215,9 +264,9 @@ When the user says "fix it" / "fix all" / "fix #NNN", or when `--yolo` is active
      Address review feedback from #NNN: <brief description>
      ```
 
-4. **Push and create PR:**
+3. **Push and create PR:**
    ```bash
-   git push -u origin "$GITHUB_USER/sweep-<pr-number>"
+   git push -u origin bostondv/sweep-<pr-number>
    ```
    ```bash
    gh pr create --repo <repo> --draft \
@@ -237,7 +286,7 @@ When the user says "fix it" / "fix all" / "fix #NNN", or when `--yolo` is active
    )"
    ```
 
-5. **Update state:** Mark each addressed comment as `fixed` in `seen.json`.
+4. **Update state:** Mark each addressed comment as `fixed` in `seen.json`.
 
 ### Step 6: Dismiss
 
@@ -247,22 +296,16 @@ When the user says "dismiss #NNN" or "dismiss all":
 
 ## Notifications
 
-Use a cascade — try each method, use the first that works:
-
-1. `cmux notify --title "Sweeper" --body "<message>"` (if `$CMUX_WORKSPACE_ID` is set and `cmux` exists)
-2. `tmux display-message "Sweeper: <message>"` (if `$TMUX` is set)
-3. `osascript -e 'display notification "<message>" with title "Sweeper"'` (macOS fallback)
-4. Console output only (always happens regardless)
-
-Only notify when new missed comments are found. Don't notify on clean sweeps.
+See `references/notifications.md` for the cascade. Use title `"Sweeper"`. Only notify when new missed comments are found. Silent on clean sweeps.
 
 ## Safety Rules
 
-- **All code changes happen in temp directories** — never modify the user's working directory
+See `references/worktree-model.md` for worktree safety rules (no user dir modifications, new commits only, discard on failure).
+
+Additional sweeper-specific rules:
 - **Always create draft PRs** — never create ready-for-review PRs
 - **All PRs include** `Sent from Claude Code` attribution
 - **Never modify the original merged PR** — only create new follow-up PRs
-- **If a fix attempt fails** (tests don't pass), report it instead of pushing broken code
 - **Respect dismissals** — once dismissed, a comment never resurfaces
 - **One follow-up PR per original PR** — group all fixes from the same source PR together
 
