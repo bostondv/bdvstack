@@ -82,20 +82,12 @@ echo "[commit-and-pr] Pushed to origin/${BRANCH}." >&2
 # ---------------------------------------------------------------------------
 PR_TITLE="feat: ${FEATURE}"
 
-# Build PR body from spec if available
-PR_BODY="Autopilot session: ${SESSION_ID}"
-SPEC_FILE="${SESSION_DIR}/spec.md"
-if [[ -f "$SPEC_FILE" ]]; then
-  SPEC_CONTENT="$(cat "$SPEC_FILE")"
-  PR_BODY="$(cat <<EOF
-## Summary
-
-${SPEC_CONTENT}
-
----
-Autopilot session: \`${SESSION_ID}\`
-EOF
-)"
+# Use pr-description.md if the orchestrator wrote one, fall back to a minimal body
+PR_BODY_FILE="${SESSION_DIR}/pr-description.md"
+if [[ -f "$PR_BODY_FILE" ]]; then
+  PR_BODY="$(cat "$PR_BODY_FILE")"
+else
+  PR_BODY="Autopilot session: \`${SESSION_ID}\`"
 fi
 
 # Check if PR already exists — use --head flag for worktree compatibility

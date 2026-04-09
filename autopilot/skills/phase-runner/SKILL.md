@@ -329,11 +329,33 @@ When ALL worker tasks complete:
 
 ### Steps
 
-1. Run the commit script:
+1. **Write the PR description.** Before running the commit script, generate `{session_dir}/pr-description.md`. Read `spec.md`, `exploration.md`, and `git diff` to understand the change, then write a concise PR description using this structure:
+
+   ```markdown
+   ## Summary
+   1-3 sentences: what this PR does and why.
+
+   ## Architecture
+   <!-- Only include if there are non-obvious design decisions. Skip for simple changes. -->
+   Brief explanation of key design choices, data flow, or module structure.
+
+   ## Results
+   <!-- Only include if there are measurable outcomes: new metrics, perf numbers, bundle size changes, etc. -->
+   What was measured or what metrics were added.
+   ```
+
+   **Rules for PR descriptions:**
+   - Lead with **what** and **why**, not a list of files changed
+   - Keep the summary to 1-3 sentences — the diff speaks for itself
+   - Omit Architecture/Results sections entirely if they don't apply
+   - Never dump the spec into the PR body
+   - No boilerplate like "This PR implements..." — just state what it does
+
+2. Run the commit script:
    ```bash
    bash ${CLAUDE_PLUGIN_ROOT}/scripts/commit-and-pr.sh {session_id}
    ```
-2. The script handles staging, committing, pushing, and creating a draft PR
+   The script handles staging, committing, pushing, and creating a draft PR using the description you wrote.
 3. Set phase to `REVIEW`
 
 ---
