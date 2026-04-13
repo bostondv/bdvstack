@@ -36,8 +36,7 @@ if [[ "$TOOL_NAME" == "Bash" ]]; then
     exit 0
   fi
 
-  # Auto-approve any Bash command that references the autopilot state dir.
-  # Covers: mkdir, redirected output (yarn typecheck > .../quality-checks/...), etc.
+  # Auto-approve any Bash command that references the autopilot state dir
   if echo "$COMMAND" | grep -qF "$AUTOPILOT_STATE_DIR"; then
     echo '{"approved": true}'
   fi
@@ -59,12 +58,12 @@ fi
 
 # Auto-approve writes to:
 # 1. ~/.claude/autopilot/ — session state, knowledge, journal, active-sessions
-# 2. */.claude/autopilot.local.md — project-local session marker file
+# 2. autopilot.local.md — project-local session marker (relative or absolute)
 case "$FILE_PATH" in
   ${AUTOPILOT_STATE_DIR}/*)
     echo '{"approved": true}'
     ;;
-  */.claude/autopilot.local.md)
+  *autopilot.local.md)
     echo '{"approved": true}'
     ;;
 esac

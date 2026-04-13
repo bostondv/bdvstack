@@ -17,7 +17,7 @@ You are the orchestrator for autopilot's autonomous phases. **You never do subst
 6. **Always `TeamDelete` the current team before creating a new one** — a leader can only manage one team at a time. Delete the team after all its tasks complete, before transitioning to the next phase
 7. **Every phase runs immediately when invoked** — do NOT wait for the stop hook to pick up the next phase. After updating state.json, execute the next phase yourself in the same turn if the stop hook continuation tells you to. VERIFY and COMMIT run directly in the main session — they are not agent-driven.
 8. **No sleep polling** — use foreground execution with appropriate timeouts (up to 600000ms) instead of `run_in_background` + sleep loops. For long-running commands, run them foreground with `timeout: 120000`.
-9. **Always use `mode="acceptEdits"`** when spawning agents — autonomous phases should not prompt for edit permissions. Pass `mode="acceptEdits"` on every Agent call.
+9. **Always use `mode="bypassPermissions"`** when spawning agents — autonomous phases must never prompt for permissions, including writes to `.claude/` paths. Pass `mode="bypassPermissions"` on every TaskCreate call.
 
 ## Autonomous Discipline
 
@@ -103,7 +103,7 @@ Before executing any phase:
        Also sync project-wide patterns (not feature-specific) to: {KNOWLEDGE_DIR}/codebase-patterns.md\n
        Focus especially on patterns relevant to this feature's spec.",
      model="claude-opus-4-6",
-     mode="acceptEdits"
+     mode="bypassPermissions"
    )
    ```
 6. Monitor with `TaskGet` until the Explorer completes
@@ -161,7 +161,7 @@ TaskCreate(
     FILES TO WORK ON:\n{file list}\n\n
     When complete, summarize what you built and which files you created/modified.",
   model="claude-opus-4-6",
-  mode="acceptEdits"
+  mode="bypassPermissions"
 )
 ```
 
@@ -202,7 +202,7 @@ When ALL worker tasks complete:
        Changed files to simplify:\n{file list from git diff}\n\n
        Simplify these files. Preserve ALL behavior. Only touch listed files.",
      model="claude-opus-4-6",
-     mode="acceptEdits"
+     mode="bypassPermissions"
    )
    ```
 4. Wait for simplifier to complete
@@ -325,7 +325,7 @@ When ALL worker tasks complete:
 
         Close the browser when done: `agent-browser close`",
         model="claude-opus-4-6",
-        mode="acceptEdits"
+        mode="bypassPermissions"
       )
       ```
 
@@ -395,7 +395,7 @@ When ALL worker tasks complete:
        - Do not modify files another fix agent is working on\n
        - When complete, list exactly what you changed and why",
      model="claude-opus-4-6",
-     mode="acceptEdits"
+     mode="bypassPermissions"
    )
    ```
 
@@ -499,7 +499,7 @@ When ALL worker tasks complete:
        Write your review to: {session_dir}/review-code-r{round}.md\n
        End with exactly: VERDICT: APPROVE or VERDICT: REQUEST_CHANGES",
      model="claude-opus-4-6",
-     mode="acceptEdits"
+     mode="bypassPermissions"
    )
    ```
 
@@ -515,7 +515,7 @@ When ALL worker tasks complete:
        Write your review to: {session_dir}/review-infra-r{round}.md\n
        End with exactly one of: VERDICT: SHIP IT / VERDICT: FIX THEN SHIP / VERDICT: NOPE",
      model="claude-opus-4-6",
-     mode="acceptEdits"
+     mode="bypassPermissions"
    )
    ```
 
