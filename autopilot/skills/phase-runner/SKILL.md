@@ -219,7 +219,13 @@ When ALL worker tasks complete:
 
 ### Steps
 
-1. **Discover project-specific quality commands.** Read `CLAUDE.md` (and `.claude/CLAUDE.md` if it exists) and `exploration.md` from the session directory. Look for lint, typecheck, test, and format commands (e.g. `./script/lint`, `npm run test`, `bundle exec rspec`). If project-specific commands are found, use those. If no project-specific commands are found, fall back to the generic quality gates script:
+1. **Discover quality commands from three sources** (in priority order):
+
+   **a. Custom quality gates from spec.** Read `{session_dir}/spec.md` and look for a `## Custom Quality Gates` section. If found, these are plan-specific verification commands (e.g., specific test files, bundle analysis scripts). Run each command listed. These are IN ADDITION TO standard checks, not a replacement.
+
+   **b. Project-specific commands.** Read `CLAUDE.md` (and `.claude/CLAUDE.md` if it exists) and `exploration.md` from the session directory. Look for lint, typecheck, test, and format commands (e.g. `./script/lint`, `npm run test`, `bundle exec rspec`).
+
+   **c. Generic fallback.** If no project-specific commands are found, fall back to the generic quality gates script:
    ```bash
    bash ${CLAUDE_PLUGIN_ROOT}/scripts/check-quality-gates.sh
    ```

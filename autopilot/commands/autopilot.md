@@ -1,7 +1,7 @@
 ---
 description: "Autonomous SWE agent loop — turns a feature description into a reviewed PR"
 user-invocable: true
-argument-hint: "[--non-interactive] <feature description>"
+argument-hint: "[--non-interactive | --plan <path> [--phase <N>]] <feature description>"
 ---
 
 # Autopilot — Autonomous Feature Development
@@ -12,7 +12,20 @@ You are the orchestrator for an autonomous software engineering loop. Your job i
 
 The user's argument is the feature description: `$ARGUMENTS`
 
-**Parse the arguments:** Check if `$ARGUMENTS` starts with `--non-interactive`. If so, strip the flag and use the remainder as the feature description. Example: `--non-interactive Add user preferences page` → feature is `Add user preferences page`.
+**Parse the arguments:**
+
+1. **`--plan <path> [--phase <N>]`** — Plan-import mode. `<path>` is a file path to an existing plan/spec document. Optional `--phase <N>` extracts only Phase N from the plan. Any remaining text after flags is the feature description override; if none provided, derive it from the plan's title. **Skips DANCE entirely.**
+
+2. **`--non-interactive`** — Auto-generates a spec from the feature description. **Skips DANCE.**
+
+3. **No flags** — Interactive mode with DANCE interview.
+
+Examples:
+- `--plan ~/Dev/docs/plans/loadable-dialog.md --phase 1` → imports Phase 1 of the plan
+- `--plan ~/Dev/docs/plans/loadable-dialog.md` → imports the entire plan as spec
+- `--plan ./spec.md Add LoadableDialog wrapper` → imports plan with a custom feature name
+- `--non-interactive Add user preferences page` → auto-generates spec
+- `Add user preferences page` → interactive DANCE interview
 
 ## Phase 1: WORKSPACE QUESTION
 
@@ -26,7 +39,7 @@ Use `AskUserQuestion` to ask:
 
 Record the answer. If the user picks worktree, note it — the worktree is created *after* the spec is finalized (Phase 2), right before autonomous execution begins.
 
-For `--non-interactive` mode: if the user didn't answer this question (no interaction at all), default to **this session**.
+For `--non-interactive` and `--plan` modes: if the user didn't answer this question (no interaction at all), default to **this session**.
 
 ## Phase 2: SETUP
 
@@ -50,7 +63,47 @@ Create a feature branch name using the convention: `bostondv/<slug>` where `<slu
 
 ## Phase 3: SPEC
 
+**If `--plan` was passed, skip to the plan-import path below.**
 **If `--non-interactive` was passed, skip to the non-interactive path below.**
+
+### Plan-import (`--plan <path> [--phase <N>]`)
+
+The plan file IS the spec. Skip DANCE entirely.
+
+1. **Read the plan file** at the provided path. If the file doesn't exist, tell the user and stop.
+
+2. **Extract the feature name.** In priority order:
+   - Use the feature description override from the arguments (if any text after the flags)
+   - Read the plan's first `# heading` and use it
+   - Fall back to the filename (slugified)
+
+3. **Phase extraction** (if `--phase <N>` was given):
+   - Scan the plan for a section matching `## Phase <N>` (case-insensitive, allows text after the number like `## Phase 1: Define LoadableDialog`)
+   - Extract everything from that header until the next `## Phase` header (or end of file)
+   - Also extract any content BEFORE the first `## Phase` header — this is the plan preamble (architecture notes, file structure, tech stack) that provides context regardless of which phase is being executed
+   - The extracted phase becomes the spec; the preamble is prepended for context
+   - Update the feature name to include the phase: e.g., `LoadableDialog — Phase 1: Define wrapper + first migration`
+
+4. **Detect custom quality gates.** Scan the plan for verification commands — look for patterns like:
+   - `yarn jest`, `yarn typecheck`, `yarn eslint`, `yarn build-rspack-stats`
+   - `bun .claude/skills/...`
+   - Bash code blocks inside steps named "Verify", "Run typecheck", "Run lint", "Run tests", "Bundle verification"
+   - Any `- [ ] **Step N: Run ...**` or `- [ ] **Step N: Verify ...**` patterns
+
+   Collect these into a `## Custom Quality Gates` section appended to the spec:
+   ```markdown
+   ## Custom Quality Gates
+   In addition to standard lint/typecheck/test, run these project-specific checks during VERIFY:
+   - `yarn jest client/store/platform/shared/__tests__/LoadableDialog.spec.tsx --runInBand`
+   - `yarn build-rspack-stats`
+   - `bun .claude/skills/bundle-analysis/scripts/chunk-group.ts LandingPageModalInternal`
+   ```
+
+5. **Write `spec.md`** to the session directory. The spec is the plan content (or extracted phase) as-is — do NOT reformat it into the standard spec.md template. Plans are already more detailed than what DANCE produces. Preserve exact code blocks, exact file paths, exact commands. Workers need these verbatim.
+
+6. **Set `browser_testing` to `false`** in state.json (plans don't use the browser testing flow).
+
+7. **Continue to branch/worktree setup and autonomous execution** — same as the interactive path from "Once approved" onward. There is no approval step — the plan was pre-approved by the user.
 
 ### Interactive (default)
 
