@@ -30,9 +30,14 @@ if [[ -z "$FILE_PATH" ]]; then
   exit 0
 fi
 
-# Auto-approve writes to autopilot state/knowledge directories
+# Auto-approve writes to:
+# 1. ~/.claude/autopilot/ — session state, knowledge, journal, active-sessions
+# 2. */.claude/autopilot.local.md — project-local session marker file
 case "$FILE_PATH" in
   ${AUTOPILOT_STATE_DIR}/*)
+    echo '{"approved": true}'
+    ;;
+  */.claude/autopilot.local.md)
     echo '{"approved": true}'
     ;;
 esac
