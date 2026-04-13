@@ -19,6 +19,45 @@ You are the orchestrator for autopilot's autonomous phases. **You never do subst
 8. **No sleep polling** — use foreground execution with appropriate timeouts (up to 600000ms) instead of `run_in_background` + sleep loops. For long-running commands, run them foreground with `timeout: 120000`.
 9. **Always use `mode="acceptEdits"`** when spawning agents — autonomous phases should not prompt for edit permissions. Pass `mode="acceptEdits"` on every Agent call.
 
+## Autonomous Discipline
+
+You are operating autonomously. The user may be away from the keyboard.
+
+- **NEVER stop between phases.** After completing a phase, transition to the next and execute it immediately in the same turn. The only terminal state is DONE.
+- **NEVER ask the user** if you should continue, if this looks good, or if they want to proceed. Just proceed.
+- **NEVER summarize and wait.** No "Here's what I did, let me know if..." — the loop runs until DONE or limits are hit.
+- **If stuck, think harder** — re-read the spec, re-read exploration.md, try a different angle. Don't bail.
+- **Log everything** to the session journal so the user can review progress when they return.
+
+### Safety Limits
+
+These prevent the autonomous loop from spinning uselessly. They are non-negotiable:
+
+| Limit | Default | Scope | Resets? |
+|-------|---------|-------|---------|
+| `max_iterations` | 10 | Stop hook (between turns) | Never |
+| `max_fix_attempts` | 3 | Per review round | Yes, on new review round |
+| `max_total_fixes` | 5 | Entire session | Never |
+| `max_review_rounds` | 2 | Entire session | Never |
+
+**Stall detection:** If two consecutive FIX attempts produce the **same error count** (zero progress), skip remaining attempts and force-COMMIT. Burning a third attempt on the same errors is waste.
+
+**Total fix budget:** `total_fix_attempts` tracks fixes across the entire session (never resets). Even if `fix_attempts` resets between review rounds, `total_fix_attempts` does not. When it hits `max_total_fixes`, force-COMMIT regardless of per-round attempts remaining.
+
+## Session Journal
+
+At every phase transition, log an entry by running:
+
+```bash
+bash -c 'source ${CLAUDE_PLUGIN_ROOT}/scripts/lib/state.sh && journal_append "<PHASE>" "<action>" "<result>" "<detail>" "<session_id>"'
+```
+
+Examples:
+- `journal_append "EXPLORE" "map codebase" "complete" "exploration.md written" "$SESSION_ID"`
+- `journal_append "VERIFY" "typecheck" "fail" "14 errors in 3 files" "$SESSION_ID"`
+- `journal_append "FIX-1" "fix type errors" "partial" "fixed 12/14, 1 new error introduced" "$SESSION_ID"`
+- `journal_append "REVIEW" "code+infra review" "approve" "both reviewers approved" "$SESSION_ID"`
+
 ## Reading Session State
 
 Before executing any phase:
@@ -38,12 +77,18 @@ Before executing any phase:
 ### Steps
 
 1. Read `spec.md` from the session directory
-2. Create a team:
+2. **Compute the project knowledge key** for cross-session knowledge:
+   ```bash
+   PROJECT_KEY=$(git remote get-url origin 2>/dev/null | md5sum | head -c 12 || echo "$(pwd)" | md5sum | head -c 12)
+   KNOWLEDGE_DIR="${HOME}/.claude/autopilot/knowledge/${PROJECT_KEY}"
+   ```
+   Check if `${KNOWLEDGE_DIR}/codebase-patterns.md` exists. If so, note the path — pass it to the Explorer so it can do a delta update instead of a full exploration.
+3. Create a team:
    ```
    TeamCreate(name="autopilot-explore-{session_id}")
    ```
-3. Read the Explorer agent persona from `${CLAUDE_PLUGIN_ROOT}/agents/explorer.md`
-4. Create the Explorer's task:
+4. Read the Explorer agent persona from `${CLAUDE_PLUGIN_ROOT}/agents/explorer.md`
+5. Create the Explorer's task:
    ```
    TaskCreate(
      team_id={team_id},
@@ -51,17 +96,21 @@ Before executing any phase:
        Project root: {cwd}\n
        Session directory: {session_dir}\n
        Feature being built: {feature name from state.json}\n
-       Spec location: {session_dir}/spec.md (READ THIS FIRST)\n\n
+       Spec location: {session_dir}/spec.md (READ THIS FIRST)\n
+       Knowledge directory: {KNOWLEDGE_DIR}\n
+       Prior codebase knowledge: {KNOWLEDGE_DIR}/codebase-patterns.md (READ THIS IF IT EXISTS — use as starting point, verify and update)\n\n
        Write your exploration report to: {session_dir}/exploration.md\n
+       Also sync project-wide patterns (not feature-specific) to: {KNOWLEDGE_DIR}/codebase-patterns.md\n
        Focus especially on patterns relevant to this feature's spec.",
      model="claude-opus-4-6",
      mode="acceptEdits"
    )
    ```
-5. Monitor with `TaskGet` until the Explorer completes
-6. Verify `{session_dir}/exploration.md` was written (read it)
-7. `TeamDelete` the explore team
-8. Update state: set phase to `BUILD`
+6. Monitor with `TaskGet` until the Explorer completes
+7. Verify `{session_dir}/exploration.md` was written (read it)
+8. `TeamDelete` the explore team
+9. Log to journal: `journal_append "EXPLORE" "map codebase" "complete" "exploration.md written" "$SESSION_ID"`
+10. Update state: set phase to `BUILD`
 
 ---
 
@@ -160,7 +209,7 @@ When ALL worker tasks complete:
 
 ### Step 6: Transition
 
-`TeamDelete` the build team, then update state: set phase to `VERIFY`
+`TeamDelete` the build team. Log to journal: `journal_append "BUILD" "spawn workers" "complete" "{N} workers completed" "$SESSION_ID"`. Update state: set phase to `VERIFY`. **Execute VERIFY immediately in the same turn — do not stop.**
 
 ---
 
@@ -174,7 +223,13 @@ When ALL worker tasks complete:
    ```bash
    bash ${CLAUDE_PLUGIN_ROOT}/scripts/check-quality-gates.sh
    ```
-   Run each discovered command and collect pass/fail results.
+
+   **Context discipline:** Do NOT let raw quality gate output flood your context window. For each check:
+   - Redirect output to a file: `{command} > {session_dir}/quality-checks/{check-name}.txt 2>&1`
+   - Check the exit code for pass/fail
+   - If failed, read only the **first 20 lines** and **last 10 lines** of the output file — not the full output
+   - The generic `check-quality-gates.sh` script already saves per-check output to `{session_dir}/quality-checks/` — read those files selectively
+   - Pass the specific output file paths to FIX agents so they can read targeted sections
 
 2. **Browser validation (if enabled).** Check `state.json` for `browser_testing: true` AND verify `{session_dir}/browser-test-plan.md` exists. If both:
 
@@ -273,8 +328,8 @@ When ALL worker tasks complete:
 
    Browser test failures are **non-blocking warnings** — they get noted in the PR description but don't prevent COMMIT. This avoids blocking on environment issues (dev server not running, auth not set up, etc.).
 
-3. If ALL quality gate checks pass -> set phase to `COMMIT`
-4. If ANY quality gate checks fail -> save output to `{session_dir}/quality-gate-results.txt`, set phase to `FIX`
+3. If ALL quality gate checks pass -> log `journal_append "VERIFY" "quality gates" "pass" "all checks passed" "$SESSION_ID"`, set phase to `COMMIT`. **Execute COMMIT immediately in the same turn.**
+4. If ANY quality gate checks fail -> save summary to `{session_dir}/quality-gate-results.txt` (include which checks failed and the paths to their detailed output files in `{session_dir}/quality-checks/`), log `journal_append "VERIFY" "quality gates" "fail" "{N} checks failed: {names}" "$SESSION_ID"`, set phase to `FIX`. **Execute FIX immediately in the same turn.**
 
 ---
 
@@ -284,26 +339,50 @@ When ALL worker tasks complete:
 
 ### Steps
 
-1. Read `{session_dir}/quality-gate-results.txt` for failure details
-2. Read `fix_attempts` and `max_fix_attempts` from state.json
-3. **If `fix_attempts >= max_fix_attempts`** -> set phase to `COMMIT` (ship what we have, note issues in PR)
+1. Read `{session_dir}/quality-gate-results.txt` for failure summary. **Context discipline:** this file should list which checks failed and paths to their detailed output in `{session_dir}/quality-checks/`. Read only the relevant `.fail.txt` files, and even then only the first 30 lines — pass file paths to fix agents so they can read what they need.
+2. Read `fix_attempts`, `max_fix_attempts`, `total_fix_attempts`, `max_total_fixes`, and `last_error_count` from state.json. If `total_fix_attempts` or `max_total_fixes` are missing, initialize them (`total_fix_attempts` = current value of `fix_attempts`, `max_total_fixes` = 5).
+3. **Bail checks — if ANY of these are true, force-COMMIT:**
+   - `fix_attempts >= max_fix_attempts` (per-round limit)
+   - `total_fix_attempts >= max_total_fixes` (session-wide limit)
+   - **Stall detected:** count current errors and compare to `last_error_count` in state.json. If the count is identical for 2 consecutive attempts, we're stalled.
+
+   On bail: log `journal_append "FIX" "bail" "force-commit" "reason: {which limit hit}" "$SESSION_ID"`, set phase to `COMMIT`. **Execute COMMIT immediately.**
 4. **Otherwise:**
 
-   a. Create a team:
+   a. **Checkpoint current state** before attempting fixes (so we can revert if the fix makes things worse). Stage and commit all current changes as a checkpoint:
+   ```bash
+   git add -A && git commit -m "autopilot: checkpoint before fix attempt ${fix_attempts}" --allow-empty
+   ```
+   Record the checkpoint commit hash for potential revert:
+   ```bash
+   CHECKPOINT_SHA=$(git rev-parse HEAD)
+   ```
+
+   b. Create a team:
    ```
    TeamCreate(name="autopilot-fix-{session_id}-attempt{fix_attempts}")
    ```
 
-   b. Analyze the failure output and categorize errors (type errors, lint errors, test failures, etc.)
+   c. Analyze the failure output and categorize errors (type errors, lint errors, test failures, etc.)
 
-   c. For EACH failure category, spawn a targeted fix agent:
+   d. **Think-harder escalation** — if this is the LAST attempt (`fix_attempts == max_fix_attempts - 1`), add this to EVERY fix agent's prompt:
+   > "ESCALATION: Previous fix approaches have failed. This is the FINAL attempt before we ship with known issues. Before writing code:
+   > 1. Re-read spec.md — is the implementation approach fundamentally wrong?
+   > 2. Re-read exploration.md — are you fighting a codebase convention?
+   > 3. Read {session_dir}/journal.tsv — what patterns do you see in the failures?
+   > 4. Consider: would a different architectural approach sidestep these errors entirely?
+   > 5. Try a more radical fix — the conservative approach hasn't worked."
+
+   e. For EACH failure category, spawn a targeted fix agent:
    ```
    TaskCreate(
      team_id={team_id},
      prompt="You are a focused bug fixer. Fix ONLY the errors described below.\n\n
        Project root: {cwd}\n
        Codebase conventions: {session_dir}/exploration.md (READ THIS)\n\n
-       ERRORS TO FIX:\n{specific error output for this category}\n\n
+       ERRORS TO FIX:\n
+       Read the detailed error output at: {session_dir}/quality-checks/{check-name}.fail.txt\n
+       Focus on lines with 'error' or 'fail' — skip warnings and info noise.\n\n
        Rules:\n
        - Only modify files needed to fix these specific errors\n
        - Do not refactor, simplify, or make unrelated changes\n
@@ -316,10 +395,27 @@ When ALL worker tasks complete:
 
    **Important:** If multiple agents might touch the same file, merge them into a single agent to avoid conflicts.
 
-   d. Wait for all fix agents to complete
-   e. `TeamDelete` the fix team
-   f. Increment `fix_attempts` in state.json
-   g. Set phase to `VERIFY`
+   f. Wait for all fix agents to complete
+
+   g. **Post-fix regression check:** Before transitioning to full VERIFY, do a quick check — did the fix introduce MORE errors than it resolved? Run the specific failed checks again:
+   ```bash
+   # Quick targeted re-check of just the previously-failing gates
+   {failed_command} > {session_dir}/quality-checks/{check-name}-postfix.txt 2>&1
+   ```
+   Compare error counts. If errors INCREASED compared to the pre-fix state, revert to the checkpoint:
+   ```bash
+   git reset --hard ${CHECKPOINT_SHA}
+   ```
+   Log: `journal_append "FIX-${fix_attempts}" "fix attempt" "reverted" "errors increased from N to M, reverted to checkpoint" "$SESSION_ID"`, increment fix_attempts, and retry with a different approach.
+
+   h. If errors decreased or stayed the same, squash the checkpoint commit into the fix (keeps history clean):
+   ```bash
+   git reset --soft ${CHECKPOINT_SHA}~1 && git add -A && git commit -m "autopilot: fix attempt ${fix_attempts}"
+   ```
+   Log: `journal_append "FIX-${fix_attempts}" "fix attempt" "progress" "errors: N->M" "$SESSION_ID"`
+   i. `TeamDelete` the fix team
+   j. Update state.json: increment `fix_attempts`, increment `total_fix_attempts`, write current error count to `last_error_count`
+   k. Set phase to `VERIFY`. **Execute VERIFY immediately in the same turn.**
 
 ---
 
@@ -356,7 +452,8 @@ When ALL worker tasks complete:
    bash ${CLAUDE_PLUGIN_ROOT}/scripts/commit-and-pr.sh {session_id}
    ```
    The script handles staging, committing, pushing, and creating a draft PR using the description you wrote.
-3. Set phase to `REVIEW`
+3. Log to journal: `journal_append "COMMIT" "create PR" "complete" "PR created and pushed" "$SESSION_ID"`
+4. Set phase to `REVIEW`. **Execute REVIEW immediately in the same turn.**
 
 ---
 
@@ -367,7 +464,7 @@ When ALL worker tasks complete:
 ### Steps
 
 1. Read `review_rounds` and `max_review_rounds` from state.json
-2. **If `review_rounds >= max_review_rounds`** -> set phase to `DONE`
+2. **If `review_rounds >= max_review_rounds`** -> log `journal_append "REVIEW" "max rounds reached" "force-done" "shipping after ${max_review_rounds} review rounds" "$SESSION_ID"`, set phase to `DONE`
 3. **Otherwise:**
 
    a. Collect the diff:
@@ -419,8 +516,8 @@ When ALL worker tasks complete:
    e. Wait for both reviewers to complete
 
    f. Read both review files and combine verdicts:
-   - Code Reviewer `APPROVE` + Infra Reviewer `SHIP IT` -> **APPROVE** -> set phase to `DONE`
-   - Either requests changes -> **REQUEST_CHANGES** -> increment `review_rounds`, reset `fix_attempts`, set phase to `BUILD`
+   - Code Reviewer `APPROVE` + Infra Reviewer `SHIP IT` -> **APPROVE** -> log `journal_append "REVIEW" "code+infra review" "approve" "both reviewers approved" "$SESSION_ID"`, set phase to `DONE`
+   - Either requests changes -> **REQUEST_CHANGES** -> log `journal_append "REVIEW" "code+infra review" "changes-requested" "round ${review_rounds}: {summary of requested changes}" "$SESSION_ID"`, increment `review_rounds`, reset `fix_attempts` to 0, clear `last_error_count` (so stall detection starts fresh for the new round), do NOT reset `total_fix_attempts`. Set phase to `BUILD`. **Execute BUILD immediately in the same turn.**
 
    Infra Reviewer verdict mapping:
    - `SHIP IT` = approve
@@ -430,6 +527,29 @@ When ALL worker tasks complete:
    g. `TeamDelete` the review team
 
    h. Write a combined review summary to `{session_dir}/review-combined-r{round}.md` with both verdicts and merged action items
+
+   i. **Sync review patterns to persistent knowledge** (if changes were requested): Extract the key review feedback and append it to `~/.claude/autopilot/knowledge/${PROJECT_KEY}/review-patterns.md`. This helps future sessions avoid the same issues. Only record patterns that are project-specific and likely to recur (e.g. "this codebase requires error boundaries around async components"), not one-off issues.
+
+---
+
+## DONE — Pre-Completion Verification
+
+Before marking the session as DONE, perform a quick sanity check:
+
+1. **PR exists:** Verify `pr_url` is set in state.json and the PR is accessible
+2. **Acceptance criteria spot-check:** Read `spec.md` and verify the key acceptance criteria were addressed (don't re-run full verification — just confirm the code exists for each criterion)
+3. **Journal completeness:** Read `{session_dir}/journal.tsv` and confirm it tells a coherent story
+4. **Log final entry:** `journal_append "DONE" "session complete" "done" "PR: {pr_url}, iterations: {iteration}, fix attempts: {fix_attempts}, review rounds: {review_rounds}" "$SESSION_ID"`
+5. **Sync fix patterns to knowledge** (if any fix attempts occurred): Summarize what types of errors were encountered and what fix strategies worked/failed. Append to `~/.claude/autopilot/knowledge/${PROJECT_KEY}/fix-playbook.md`. Format:
+   ```
+   ## {date} — {feature name}
+   - Error: {type of error}
+   - Tried: {approach} → {result}
+   - What worked: {successful approach}
+   ```
+   Only record patterns likely to recur in this project.
+
+Then output `<promise>Session ${SESSION_ID} complete. PR: ${pr_url}</promise>` so the stop hook allows exit.
 
 ---
 
@@ -444,7 +564,8 @@ digraph phases {
     BUILD -> VERIFY;
     VERIFY -> COMMIT [label="all pass"];
     VERIFY -> FIX [label="failures"];
-    FIX -> VERIFY [label="attempts < max"];
+    FIX -> VERIFY [label="attempts < max\nerrors same or fewer"];
+    FIX -> FIX [label="errors increased\n(revert + retry)"];
     FIX -> COMMIT [label="attempts >= max"];
     COMMIT -> REVIEW;
     REVIEW -> DONE [label="both approve"];

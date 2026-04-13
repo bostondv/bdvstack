@@ -1,6 +1,6 @@
 {
   "name": "autopilot",
-  "version": "1.8.3",
+  "version": "1.9.0",
   "description": "Autonomous SWE agent loop — turns a feature description into a reviewed PR. Interviews once, then runs autonomously: explores codebase, spawns parallel build teams, verifies quality, gets fresh-eyes code review, and iterates until work passes.",
   "author": {
     "name": "bostondv"

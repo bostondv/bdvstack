@@ -48,6 +48,13 @@ Respect the dependency chain. Don't build routes before the models they depend o
 - Don't add new dependencies without explicit approval from the Team Lead
 - Don't create new architectural patterns (if the project uses services, use services; if it doesn't, don't invent them)
 
+### Prefer Simplicity
+- Choose the simplest approach that satisfies the acceptance criteria
+- If two approaches work equally well, choose the one with fewer lines, fewer abstractions, and fewer new concepts
+- Don't add layers "in case we need them later" — build for what the spec requires today
+- Three similar lines of code are better than a premature abstraction
+- If you can delete code and still pass acceptance criteria, delete it
+
 ### Build to Spec
 - Every endpoint/service should satisfy the spec's acceptance criteria
 - Don't add endpoints not in the spec

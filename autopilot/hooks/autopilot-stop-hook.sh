@@ -56,6 +56,8 @@ FIX_ATTEMPTS="$(read_state_field "fix_attempts" "$SESSION_ID")"
 MAX_FIX_ATTEMPTS="$(read_state_field "max_fix_attempts" "$SESSION_ID")"
 REVIEW_ROUNDS="$(read_state_field "review_rounds" "$SESSION_ID")"
 MAX_REVIEW_ROUNDS="$(read_state_field "max_review_rounds" "$SESSION_ID")"
+TOTAL_FIX_ATTEMPTS="$(read_state_field "total_fix_attempts" "$SESSION_ID")"
+MAX_TOTAL_FIXES="$(read_state_field "max_total_fixes" "$SESSION_ID")"
 
 # Defaults
 ITERATION="${ITERATION:-0}"
@@ -64,6 +66,8 @@ FIX_ATTEMPTS="${FIX_ATTEMPTS:-0}"
 MAX_FIX_ATTEMPTS="${MAX_FIX_ATTEMPTS:-3}"
 REVIEW_ROUNDS="${REVIEW_ROUNDS:-0}"
 MAX_REVIEW_ROUNDS="${MAX_REVIEW_ROUNDS:-2}"
+TOTAL_FIX_ATTEMPTS="${TOTAL_FIX_ATTEMPTS:-0}"
+MAX_TOTAL_FIXES="${MAX_TOTAL_FIXES:-5}"
 
 # ---------------------------------------------------------------------------
 # Terminal phases — allow exit
@@ -76,10 +80,17 @@ case "$PHASE" in
 esac
 
 # ---------------------------------------------------------------------------
-# Iteration limit check
+# Safety limit checks
 # ---------------------------------------------------------------------------
 if (( ITERATION >= MAX_ITERATIONS )); then
   echo "[autopilot] Max iterations (${MAX_ITERATIONS}) reached. Completing." >&2
+  set_phase "DONE" "$SESSION_ID"
+  update_session_status "$SESSION_ID" "completed" "DONE" 2>/dev/null || true
+  exit 0
+fi
+
+if (( TOTAL_FIX_ATTEMPTS >= MAX_TOTAL_FIXES )); then
+  echo "[autopilot] Total fix budget (${MAX_TOTAL_FIXES}) exhausted. Completing." >&2
   set_phase "DONE" "$SESSION_ID"
   update_session_status "$SESSION_ID" "completed" "DONE" 2>/dev/null || true
   exit 0
@@ -105,25 +116,31 @@ increment_iteration "$SESSION_ID"
 
 # Phase-specific continuation messages
 # All phases delegate to the phase-runner skill which has concrete orchestration recipes.
+#
+# AUTONOMOUS DISCIPLINE: Every continuation prompt includes explicit instructions to
+# NOT stop, NOT ask the user, and NOT summarize/wait. Inspired by autoresearch's
+# "NEVER STOP" pattern — the session runs until DONE or iteration limits hit.
+PREAMBLE="You are in an AUTONOMOUS autopilot session. DO NOT ask the user if you should continue. DO NOT summarize what happened and wait for input. DO NOT output 'let me know if you want to continue' or similar. Execute the next phase IMMEDIATELY."
+
 CONTINUATION=""
 case "$PHASE" in
   EXPLORE)
-    CONTINUATION="Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: EXPLORE. Invoke the phase-runner skill to execute the EXPLORE phase. Execute it immediately — do not wait."
+    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: EXPLORE. Invoke the phase-runner skill to execute the EXPLORE phase. After EXPLORE completes, transition to BUILD and execute it in the same turn."
     ;;
   BUILD)
-    CONTINUATION="Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: BUILD (iteration ${ITERATION}/${MAX_ITERATIONS}). Invoke the phase-runner skill to execute the BUILD phase. Execute it immediately — do not wait."
+    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: BUILD (iteration ${ITERATION}/${MAX_ITERATIONS}). Invoke the phase-runner skill to execute the BUILD phase. After BUILD completes, transition to VERIFY and execute it in the same turn."
     ;;
   VERIFY)
-    CONTINUATION="Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: VERIFY. Invoke the phase-runner skill to execute the VERIFY phase. This runs directly in the main session — do NOT spawn agents for quality gates. Execute it immediately."
+    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: VERIFY. Invoke the phase-runner skill to execute the VERIFY phase. This runs directly in the main session — do NOT spawn agents for quality gates. After VERIFY, transition to the next phase (COMMIT or FIX) and execute it in the same turn."
     ;;
   FIX)
-    CONTINUATION="Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: FIX (attempt $((FIX_ATTEMPTS + 1))/${MAX_FIX_ATTEMPTS}). Invoke the phase-runner skill to execute the FIX phase. Execute it immediately — do not wait."
+    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: FIX (attempt $((FIX_ATTEMPTS + 1))/${MAX_FIX_ATTEMPTS}). Invoke the phase-runner skill to execute the FIX phase. After FIX completes, transition to VERIFY and execute it in the same turn."
     ;;
   COMMIT)
-    CONTINUATION="Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: COMMIT. Invoke the phase-runner skill to execute the COMMIT phase. This runs directly in the main session — stage, commit, push, create draft PR. Execute it immediately."
+    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: COMMIT. Invoke the phase-runner skill to execute the COMMIT phase. This runs directly in the main session — stage, commit, push, create draft PR. After COMMIT, transition to REVIEW and execute it in the same turn."
     ;;
   REVIEW)
-    CONTINUATION="Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: REVIEW (round $((REVIEW_ROUNDS + 1))/${MAX_REVIEW_ROUNDS}). Invoke the phase-runner skill to execute the REVIEW phase. Execute it immediately — do not wait."
+    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: REVIEW (round $((REVIEW_ROUNDS + 1))/${MAX_REVIEW_ROUNDS}). Invoke the phase-runner skill to execute the REVIEW phase. After REVIEW, if approved transition to DONE. If changes requested, transition to BUILD and execute it in the same turn."
     ;;
   *)
     echo "[autopilot] Unknown phase: ${PHASE}. Allowing exit." >&2

@@ -172,6 +172,35 @@ increment_review_rounds() {
 
 reset_fix_attempts() {
   write_state_field "fix_attempts" "0" "${1:-}"
+  # Clear stall detection when starting a new review round
+  write_state_field "last_error_count" "-1" "${1:-}"
+}
+
+increment_total_fix_attempts() {
+  local sid="${1:-}"
+  local current
+  current="$(read_state_field "total_fix_attempts" "$sid")"
+  current="${current:-0}"
+  write_state_field "total_fix_attempts" "$(( current + 1 ))" "$sid"
+}
+
+set_last_error_count() {
+  # Usage: set_last_error_count <count> [session_id]
+  write_state_field "last_error_count" "$1" "${2:-}"
+}
+
+is_stalled() {
+  # Usage: is_stalled <current_error_count> [session_id]
+  # Returns 0 (true) if current count matches last_error_count (no progress)
+  local current_count="$1"
+  local sid="${2:-}"
+  local last_count
+  last_count="$(read_state_field "last_error_count" "$sid")"
+  last_count="${last_count:--1}"
+  if [[ "$current_count" == "$last_count" && "$last_count" != "-1" ]]; then
+    return 0  # stalled
+  fi
+  return 1  # not stalled
 }
 
 # ---------------------------------------------------------------------------
@@ -278,4 +307,34 @@ get_active_sessions() {
   else
     cat "$ACTIVE_SESSIONS_FILE"
   fi
+}
+
+# ---------------------------------------------------------------------------
+# Session journal — structured experiment/phase tracking
+# ---------------------------------------------------------------------------
+
+get_journal_file() {
+  local session_dir
+  session_dir="$(get_session_dir "${1:-}")"
+  echo "${session_dir}/journal.tsv"
+}
+
+journal_append() {
+  # Usage: journal_append <phase> <action> <result> <detail> [session_id]
+  local phase="$1" action="$2" result="$3" detail="$4"
+  local sid="${5:-}"
+  local journal_file
+  journal_file="$(get_journal_file "$sid")"
+
+  # Write header if file doesn't exist
+  if [[ ! -f "$journal_file" ]]; then
+    printf 'timestamp\tphase\taction\tresult\tdetail\n' > "$journal_file"
+  fi
+
+  local ts
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # Sanitize tabs from detail field
+  local clean_detail
+  clean_detail="$(printf '%s' "$detail" | tr '\t' ' ')"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$phase" "$action" "$result" "$clean_detail" >> "$journal_file"
 }

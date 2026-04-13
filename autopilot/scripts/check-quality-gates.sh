@@ -18,20 +18,51 @@ FAILURES=0
 PASSES=0
 RESULTS=""
 
+# Per-check output directory for context-efficient reading
+SESSION_ID_QG="$(get_active_session_id)" || true
+if [[ -n "$SESSION_ID_QG" ]]; then
+  CHECK_OUTPUT_DIR="$(get_session_dir "$SESSION_ID_QG")/quality-checks"
+  mkdir -p "$CHECK_OUTPUT_DIR"
+else
+  CHECK_OUTPUT_DIR=""
+fi
+
 run_check() {
   local name="$1"
   shift
   echo "[quality-gate] Running: ${name}" >&2
   local output
+  # Slugify check name for filename
+  local slug
+  slug="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g')"
   if output=$("$@" 2>&1); then
     PASSES=$((PASSES + 1))
     RESULTS="${RESULTS}\n  PASS: ${name}"
     echo "[quality-gate] PASS: ${name}" >&2
+    # Save output for context-efficient reading
+    if [[ -n "$CHECK_OUTPUT_DIR" ]]; then
+      printf '%s' "$output" > "${CHECK_OUTPUT_DIR}/${slug}.pass.txt"
+    fi
   else
     FAILURES=$((FAILURES + 1))
     RESULTS="${RESULTS}\n  FAIL: ${name}"
     echo "[quality-gate] FAIL: ${name}" >&2
-    echo "$output" >&2
+    # Save FULL output to file instead of dumping to stderr (context discipline)
+    if [[ -n "$CHECK_OUTPUT_DIR" ]]; then
+      printf '%s' "$output" > "${CHECK_OUTPUT_DIR}/${slug}.fail.txt"
+      # Print only a summary to stderr — agents should read the file for details
+      local line_count
+      line_count=$(printf '%s' "$output" | wc -l)
+      echo "[quality-gate]   ${line_count} lines of output saved to ${CHECK_OUTPUT_DIR}/${slug}.fail.txt" >&2
+      # Print first 5 and last 5 lines as a preview
+      printf '%s' "$output" | head -5 >&2
+      if [[ "$line_count" -gt 10 ]]; then
+        echo "  ... (${line_count} total lines — read file for full output) ..." >&2
+        printf '%s' "$output" | tail -5 >&2
+      fi
+    else
+      echo "$output" >&2
+    fi
   fi
 }
 
@@ -118,8 +149,17 @@ echo ""
 SESSION_ID="$(get_active_session_id)" || true
 if [[ -n "$SESSION_ID" ]]; then
   if [[ $FAILURES -gt 0 ]]; then
-    # Save failure output for FIX phase
-    printf '%b\n' "$RESULTS" > "$(get_session_dir "$SESSION_ID")/quality-gate-results.txt"
+    SESSION_DIR_QG="$(get_session_dir "$SESSION_ID")"
+    {
+      printf '%b\n' "$RESULTS"
+      echo ""
+      echo "Detailed output files:"
+      if [[ -n "$CHECK_OUTPUT_DIR" && -d "$CHECK_OUTPUT_DIR" ]]; then
+        ls -1 "${CHECK_OUTPUT_DIR}"/*.fail.txt 2>/dev/null | while read -r f; do
+          echo "  - ${f}"
+        done
+      fi
+    } > "${SESSION_DIR_QG}/quality-gate-results.txt"
   fi
 fi
 
