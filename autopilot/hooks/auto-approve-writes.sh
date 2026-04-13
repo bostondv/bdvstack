@@ -36,10 +36,9 @@ if [[ "$TOOL_NAME" == "Bash" ]]; then
     exit 0
   fi
 
-  # Auto-approve Bash commands that only target autopilot state dir
-  # Match: mkdir, touch, cp, mv, cat, echo/printf redirects to autopilot paths
-  if echo "$COMMAND" | grep -qP "(^|\s|&&|\|\||;)\s*(mkdir|touch|cp|mv|cat|echo|printf|tee|rm)\b" && \
-     echo "$COMMAND" | grep -qF "$AUTOPILOT_STATE_DIR"; then
+  # Auto-approve any Bash command that references the autopilot state dir.
+  # Covers: mkdir, redirected output (yarn typecheck > .../quality-checks/...), etc.
+  if echo "$COMMAND" | grep -qF "$AUTOPILOT_STATE_DIR"; then
     echo '{"approved": true}'
   fi
 
