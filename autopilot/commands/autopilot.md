@@ -37,9 +37,9 @@ Use `AskUserQuestion` to ask:
 > 1. **This session** — work in the current directory
 > 2. **New worktree** — create an isolated worktree (via graft) with its own branch
 >
-> **Note:** Autopilot runs best in **Accept Edits** mode (`Shift+Tab` → Accept Edits) to avoid permission prompts during autonomous execution.
+> **Note:** Autopilot runs best in **Bypass Permissions** mode (`Shift+Tab` → Bypass Permissions) to avoid permission prompts during autonomous execution. Worktree sessions use this automatically.
 
-Record the answer. If the user picks worktree, note it — the worktree is created *after* the spec is finalized (Phase 2), right before autonomous execution begins. Worktree sessions are launched with `--mode acceptEdits` automatically.
+Record the answer. If the user picks worktree, note it — the worktree is created *after* the spec is finalized (Phase 2), right before autonomous execution begins. Worktree sessions are launched with `--mode bypassPermissions` automatically.
 
 For `--non-interactive` and `--plan` modes: if the user didn't answer this question (no interaction at all), default to **this session**.
 
@@ -168,13 +168,13 @@ When the user chose "new worktree", the original session creates the worktree an
    ```
    CONTINUATION="Continue autopilot session <session_id>. Read state at ~/.claude/autopilot/sessions/<session_id>/state.json. Invoke the phase-runner skill and run phases EXPLORE through DONE."
    ```
-7. **Launch a new Claude session in the worktree** using `cmux` if available, otherwise print the command. Always use `--mode acceptEdits` so the autonomous loop isn't blocked by write permission prompts:
+7. **Launch a new Claude session in the worktree** using `cmux` if available, otherwise print the command. Always use `--mode bypassPermissions` so the autonomous loop isn't blocked by permission prompts:
    ```bash
    # If cmux is available:
-   cmux split --cmd "cd <worktree_project_path> && claude --mode acceptEdits '$CONTINUATION'"
+   cmux split --cmd "cd <worktree_project_path> && claude --mode bypassPermissions '$CONTINUATION'"
    # Otherwise, print for the user:
    echo "Run this in a new terminal:"
-   echo "  cd <worktree_project_path> && claude --mode acceptEdits '$CONTINUATION'"
+   echo "  cd <worktree_project_path> && claude --mode bypassPermissions '$CONTINUATION'"
    ```
 8. **This session is now done.** Tell the user: "Autopilot is running in the new terminal. You can watch and interact with it there." Do NOT continue to Phase 4 in this session.
 
