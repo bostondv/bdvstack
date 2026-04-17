@@ -58,6 +58,15 @@
       "author": {
         "name": "bostondv"
       }
+    },
+    {
+      "name": "go",
+      "source": "./go",
+      "description": "The /go ship-it loop — build, code review, end-to-end verify, simplify, then open a draft PR. Each phase runs as a general-purpose teammate to keep the main chat context clean.",
+      "version": "1.0.0",
+      "author": {
+        "name": "bostondv"
+      }
     }
   ]
 }
