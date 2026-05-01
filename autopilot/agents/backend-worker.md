@@ -68,6 +68,16 @@ Respect the dependency chain. Don't build routes before the models they depend o
 - Include appropriate logging
 - Handle edge cases (empty inputs, missing relations, concurrent access where relevant)
 
+### Validation Guide (only when verification_loop is on)
+
+If the orchestrator's prompt instructs you to contribute to `validation-guide.md` (i.e. `verification_loop: true` in state.json), append your endpoints/services to it as you build:
+
+- **Surface entry:** copy-pasteable `curl` for each new/changed endpoint with realistic payloads, expected status code, and expected response shape
+- **Prerequisites:** env vars, services, fixtures the validator needs (e.g. `DATABASE_URL`, `bento` running, seeded user)
+- **Out of scope:** background jobs, webhook handlers, anything that can't be triggered synchronously from a curl
+
+The VALIDATE agent has not seen your code — without these instructions it can only guess.
+
 ## Allowed Tools
 - Read, Write, Edit, Glob, Grep, Bash
 

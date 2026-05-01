@@ -26,10 +26,53 @@ Ask questions like:
 - "Edge cases?"
 - "Dependencies?"
 
-**Browser testing:** If the feature has a UI component AND the user hasn't already mentioned browser testing preferences, add ONE question:
-- "Should I include automated browser testing for this feature — navigating pages, filling forms, clicking buttons, taking screenshots to verify the UI works? Requires `agent-browser` CLI and Chrome Debug running. [Yes / No]"
+**Verification loop (ALWAYS ASK — exactly once per session):** Add this question regardless of feature type:
+- "Should I run an end-to-end verification loop after the standard quality gates pass? This phase actually exercises the feature (curls API endpoints, drives the browser, runs the CLI binary, etc.) to prove it works at runtime — not just that it compiles and tests pass. Quality gates (tests, lint, typecheck) always run regardless. [Yes / No]"
 
-Record the answer in state.json as `"browser_testing": true|false`. If yes, also ask for the base URL if not already known (e.g. `http://localhost:3000`).
+Record the answer in state.json as `"verification_loop": true|false`. If yes and the feature is UI-driven, run the **browser-check preflight** (next subsection) before continuing.
+
+#### Browser-check preflight (UI features with verification_loop=true)
+
+VALIDATE drives the browser via `agent-browser` and reads from `.browser-check/config.yaml` + `.browser-flows/flows.yml` (the **browser-check** skill format). When the user opts into the verification loop on a UI feature:
+
+1. **Check `agent-browser` is installed:** `which agent-browser`. If not found, tell the user one of: `gohan install agent-browser` or `npm install -g agent-browser && agent-browser install`. Continue regardless — VALIDATE will record SKIPPED for browser scenarios if it can't run.
+
+2. **Ask for the base URL** if not already known: e.g. `http://localhost:3000`. Save as `validate_base_url` in state.json.
+
+3. **Check `.browser-check/config.yaml` exists.** If missing, ask the user:
+   > "No `.browser-check/config.yaml` found. I can scaffold it now with host `<base_url>` so VALIDATE can drive the browser. Ok? [Yes / No]"
+
+   If Yes, scaffold both files (idempotent — only create what's missing):
+   ```bash
+   mkdir -p .browser-check/runs .browser-flows
+   grep -q "^\.browser-check" .gitignore 2>/dev/null || echo ".browser-check/" >> .gitignore
+
+   # Only write config if missing
+   [ -f .browser-check/config.yaml ] || cat > .browser-check/config.yaml <<EOF
+   host: "<base_url>"
+   device: null
+   screenshots: true
+   annotateScreenshots: false
+   timeout: 30000
+   parallel: false
+   EOF
+
+   # Only write flows.yml if missing
+   [ -f .browser-flows/flows.yml ] || cat > .browser-flows/flows.yml <<'EOF'
+   # Named browser flows. Each entry: path (or script) + criteria.
+   # Workers may append entries here for new UI surfaces during BUILD.
+   #
+   # smoke:
+   #   path: /
+   #   criteria: page renders without console errors
+   EOF
+   ```
+
+   If No, continue without scaffolding — VALIDATE will fall back to direct navigation against `validate_base_url` and skip flow-based scenarios.
+
+4. **Record outcome in state.json:**
+   - `"browser_check_configured": true|false` — whether `.browser-check/config.yaml` exists at this point
+   - `"browser_check_scaffolded": true|false` — whether autopilot wrote it during this session (so workers know they may append to flows.yml)
 
 ### N - Narrow
 **Purpose:** Lock scope. This is the critical phase.
@@ -79,10 +122,11 @@ Ask: "Read it. Anything missing? Shall I proceed?"
 ## Out of Scope
 - <explicitly excluded items>
 
-## Browser Testing
+## Verification Loop
 - Enabled: yes/no
-- Base URL: <local dev URL if known, e.g. http://localhost:3000>
-- Key flows to validate in browser (if enabled):
-  - <flow 1: description + expected outcome>
-  - <flow 2: description + expected outcome>
+- Base URL (UI features only): <local dev URL if known, e.g. http://localhost:3000>
+- Browser-check configured: yes/no (scaffolded by autopilot if missing)
+- How to exercise the feature end-to-end (if enabled):
+  - <how to start the service / run the CLI / open the page>
+  - <key flows or commands to validate>
 ```

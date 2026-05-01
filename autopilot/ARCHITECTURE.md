@@ -13,12 +13,20 @@ A self-contained Claude Code plugin that turns a feature description into a revi
 ```json
 {
   "name": "autopilot",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "Self-contained autonomous SWE agent loop..."
 }
 ```
 
 The plugin ships 3 commands, 10 agents, 6 skills, 4 templates, 4 scripts, and 1 hook.
+
+## Recommended companion: browser-check
+
+Autopilot's optional VALIDATE phase drives the browser via `agent-browser` and reads `.browser-check/config.yaml` + `.browser-flows/flows.yml` (the **browser-check** skill format). For UI features:
+
+- If `agent-browser` is missing, browser scenarios are SKIPPED non-blockingly — install via `gohan install agent-browser` or `npm install -g agent-browser && agent-browser install`.
+- If `.browser-check/config.yaml` is missing, the DANCE preflight offers to scaffold it with the user's base URL.
+- During BUILD, frontend workers append flow entries to `.browser-flows/flows.yml` so VALIDATE can drive them by name instead of ad-hoc URLs.
 
 ## Component Inventory
 
@@ -70,7 +78,7 @@ autopilot/
     ├── reviewer-prompt.md              ← Code Reviewer's prompt ({{SPEC}}, {{DIFF}})
     ├── simplifier-prompt.md            ← post-build simplification prompt
     ├── qa-prompt.md                    ← QA generation prompt
-    └── browser-test-plan.md            ← browser test plan template (tool-agnostic)
+    └── validation-guide.md             ← worker-authored runtime validation instructions
 ```
 
 ## How It Thinks: The DANCE Framework
@@ -89,9 +97,13 @@ This isn't bureaucratic — it forces you to articulate the thing you haven't fu
 
 ## The Loop
 
-The main phases flow: SPEC → EXPLORE → BUILD → VERIFY → (pass→COMMIT, fail→FIX→VERIFY) → REVIEW → (approve→DONE, changes→BUILD)
+The main phases flow: SPEC → EXPLORE → BUILD → TEST → (pass→VALIDATE if enabled, else COMMIT; fail→FIX→TEST) → VALIDATE (optional) → (pass→COMMIT; bugs→FIX→TEST→VALIDATE; attempts exhausted→COMMIT) → COMMIT → REVIEW → (approve→DONE, changes→BUILD)
 
 **SPEC** is interactive — the Team Lead asks you questions. Everything after is autonomous, driven by a stop hook that reads the current phase from `state.json` and injects the next instruction. The loop terminates when the review passes, the iteration limit is hit, or you cancel.
+
+**TEST** runs the standard quality gates (lint, typecheck, tests, custom checks) and is always required. It discovers the project's actual runner from `exploration.md` / `CLAUDE.md` / package manifests and prefers scoped invocations against affected files (computed via `git diff --name-only`) when the discovered runner supports it, falling back to the full suite otherwise.
+
+**VALIDATE** is the optional runtime verification loop — inspired by the `/go` skill — that actually runs the feature in the environment (starts the dev server, drives the browser via `agent-browser`, hits APIs with `curl`, exercises the CLI binary, etc.). The Team Lead always asks during SPEC whether to enable VALIDATE; in non-interactive / `--plan` mode, the `--verify-loop` / `--no-verify-loop` flags control it. If VALIDATE catches real runtime bugs it sets `fix_source=validate` and routes to FIX, then back through TEST and VALIDATE — capped by `max_validate_attempts` and the session-wide `max_total_fixes` so the loop can't get stuck. Env-level skips (no dev server, no `agent-browser`, auth wall) are non-blocking and surfaced in the draft PR description for the user to triage.
 
 ## The Cast
 
@@ -116,7 +128,7 @@ The Spec Guardian doesn't build. Doesn't test. Validates. It reads every accepta
 Frontend workers, backend workers, and test workers are the hands. They're language-agnostic — they read `exploration.md` and adapt to whatever stack they find.
 
 ### QA Tester — Cantaloupe `#FFBB6E`
-The QA tester starts working the moment BUILD begins — not when code is done. They read the spec and immediately start writing `qa-guide.md`. If browser testing is enabled (opted in during SPEC), the QA tester also writes `browser-test-plan.md` with concrete flows. A separate browser validation agent executes the plan during VERIFY using `agent-browser` CLI connected to Chrome Debug.
+The QA tester starts working the moment BUILD begins — not when code is done. They read the spec and immediately start writing `qa-guide.md`. Runtime end-to-end verification is handled by the separate VALIDATE phase (when `verification_loop` is enabled), so the QA tester focuses on documenting test scenarios rather than executing them.
 
 ### Simplifier
 Runs after BUILD completes. Reviews recently written code and simplifies it.

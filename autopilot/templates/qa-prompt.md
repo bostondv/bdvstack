@@ -62,17 +62,4 @@ Think adversarially — what would a malicious user try? Think about what a tire
 
 Include both manual and automated test approaches for each section. Automated tests should be concrete enough that a test worker can implement them directly.
 
-### Browser Test Plan (if enabled)
-
-If `browser_testing` is enabled, write `browser-test-plan.md` in the session directory with concrete browser validation flows. Each flow must have:
-
-- **Route:** URL path to test (e.g. `/settings`)
-- **Criteria:** one-line summary of what to validate
-- **Steps:** concrete user actions (click X, fill Y with Z, submit)
-- **Expected outcome:** specific, verifiable assertions
-
-Cover happy paths first, then error states (validation errors, empty states, edge cases). As code lands, refine flows with actual routes, element labels, and form fields from the implementation.
-
-This plan is consumed by a browser validation step in VERIFY — the QA tester does not execute it directly.
-
-If browser testing is not enabled, skip this section.
+The end-to-end runtime verification (curling endpoints, driving the browser, exercising the CLI) is handled by the separate VALIDATE phase if `verification_loop` is enabled. You do not need to write a separate browser test plan — but `qa-guide.md` should document the scenarios that VALIDATE will exercise so they're captured in one place.

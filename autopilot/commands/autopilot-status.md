@@ -21,7 +21,8 @@ Display the current status of all active autopilot sessions.
      - `SPEC` — Interviewing
      - `EXPLORE` — Mapping codebase
      - `BUILD` — Implementing
-     - `VERIFY` — Running checks
+     - `TEST` — Running quality gates (lint/typecheck/tests)
+     - `VALIDATE` — Exercising feature end-to-end at runtime (optional)
      - `FIX` — Fixing issues
      - `COMMIT` — Committing & pushing
      - `REVIEW` — Self-reviewing PR

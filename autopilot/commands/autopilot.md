@@ -1,7 +1,7 @@
 ---
 description: "Autonomous SWE agent loop — turns a feature description into a reviewed PR"
 user-invocable: true
-argument-hint: "[--non-interactive | --plan <path> [--phase <N>]] <feature description>"
+argument-hint: "[--non-interactive | --plan <path> [--phase <N>]] [--verify-loop | --no-verify-loop] <feature description>"
 ---
 
 # Autopilot — Autonomous Feature Development
@@ -18,14 +18,18 @@ The user's argument is the feature description: `$ARGUMENTS`
 
 2. **`--non-interactive`** — Auto-generates a spec from the feature description. **Skips DANCE.**
 
-3. **No flags** — Interactive mode with DANCE interview.
+3. **`--verify-loop` / `--no-verify-loop`** — Forces the end-to-end verification loop (the VALIDATE phase that exercises the feature at runtime) on or off. Use these in `--non-interactive` and `--plan` modes where there is no DANCE interview to ask the user. In interactive mode, these still take precedence over the DANCE answer if both are provided. If neither flag is given in non-interactive/plan mode, defaults to **off**.
+
+4. **No flags** — Interactive mode with DANCE interview (which always asks about the verification loop).
 
 Examples:
 - `--plan ~/Dev/docs/plans/loadable-dialog.md --phase 1` → imports Phase 1 of the plan
 - `--plan ~/Dev/docs/plans/loadable-dialog.md` → imports the entire plan as spec
 - `--plan ./spec.md Add LoadableDialog wrapper` → imports plan with a custom feature name
+- `--plan ./spec.md --verify-loop` → imports plan and enables the runtime verification loop
 - `--non-interactive Add user preferences page` → auto-generates spec
-- `Add user preferences page` → interactive DANCE interview
+- `--non-interactive --verify-loop Add login page` → auto-generates spec and enables the verification loop
+- `Add user preferences page` → interactive DANCE interview (asks about verification loop)
 
 ## Phase 1: WORKSPACE QUESTION
 
@@ -95,7 +99,7 @@ The plan file IS the spec. Skip DANCE entirely.
    Collect these into a `## Custom Quality Gates` section appended to the spec:
    ```markdown
    ## Custom Quality Gates
-   In addition to standard lint/typecheck/test, run these project-specific checks during VERIFY:
+   In addition to standard lint/typecheck/test, run these project-specific checks during TEST:
    - `yarn jest client/store/platform/shared/__tests__/LoadableDialog.spec.tsx --runInBand`
    - `yarn build-rspack-stats`
    - `bun .claude/skills/bundle-analysis/scripts/chunk-group.ts LandingPageModalInternal`
@@ -103,7 +107,7 @@ The plan file IS the spec. Skip DANCE entirely.
 
 5. **Write `spec.md`** to the session directory. The spec is the plan content (or extracted phase) as-is — do NOT reformat it into the standard spec.md template. Plans are already more detailed than what DANCE produces. Preserve exact code blocks, exact file paths, exact commands. Workers need these verbatim.
 
-6. **Set `browser_testing` to `false`** in state.json (plans don't use the browser testing flow).
+6. **Set `verification_loop`** in state.json based on CLI flags: `true` if `--verify-loop` was passed, `false` otherwise (including if `--no-verify-loop` was passed). Plans default to off unless explicitly enabled.
 
 7. **Continue to branch/worktree setup and autonomous execution** — same as the interactive path from "Once approved" onward. There is no approval step — the plan was pre-approved by the user.
 
@@ -116,7 +120,7 @@ The plan file IS the spec. Skip DANCE entirely.
 Adopt the persona of the **Team Lead**, a senior PM agent. Invoke the `dance-spec` skill to conduct a structured interview using the DANCE framework:
 
 - **Discover**: Understand the user's goal, motivation, and constraints (2-3 questions)
-- **Analyze**: Dig into edge cases, dependencies, and scope boundaries (2-3 questions). If the feature has a UI component and the user hasn't already specified, ask about browser testing.
+- **Analyze**: Dig into edge cases, dependencies, and scope boundaries (2-3 questions). **Always** ask whether to run the end-to-end verification loop (the VALIDATE phase). If `--verify-loop` or `--no-verify-loop` was passed on the CLI, skip the question and use the flag's value.
 - **Narrow**: Prioritize and cut scope to an achievable first iteration (2 questions)
 - **Code**: Clarify technical preferences, patterns, and conventions (1-2 questions)
 - **Evaluate**: Confirm acceptance criteria and definition of done (1 question)
@@ -140,8 +144,8 @@ Once approved:
 Skip the DANCE interview entirely. Instead:
 
 1. **Explore the codebase briefly** — read the project structure, `CLAUDE.md`, `package.json` or equivalent, and any files obviously related to the feature description. This gives you enough context to write a reasonable spec.
-2. **Generate `spec.md` automatically** from the feature description and codebase context. Use the same format as the interactive path (Overview, User Stories, Acceptance Criteria, Technical Approach, Out of Scope, Browser Testing). Make reasonable assumptions — prefer a tight, minimal scope over an ambitious one.
-3. **Set `browser_testing` to `false`** in state.json (can't ask the user).
+2. **Generate `spec.md` automatically** from the feature description and codebase context. Use the same format as the interactive path (Overview, User Stories, Acceptance Criteria, Technical Approach, Out of Scope, Verification Loop). Make reasonable assumptions — prefer a tight, minimal scope over an ambitious one.
+3. **Set `verification_loop`** in state.json based on CLI flags: `true` if `--verify-loop` was passed, `false` otherwise (including if `--no-verify-loop` was passed or no flag was given). Default is off because we can't ask the user.
 4. **Save `spec.md`** to the session directory.
 5. **If this session:** Create the branch normally, set phase to `EXPLORE`, continue to Phase 4.
 6. **If worktree was selected:** Hand off to a new terminal (see Worktree Handoff below).
@@ -184,7 +188,7 @@ When the user chose "new worktree", the original session creates the worktree an
 
 From `EXPLORE` onward, the **stop hook** takes over and drives all remaining phases automatically:
 
-`EXPLORE` → `BUILD` → `VERIFY` → `FIX` (if needed) → `COMMIT` → `REVIEW` → `DONE`
+`EXPLORE` → `BUILD` → `TEST` → `VALIDATE` (if `verification_loop`) → `FIX` (if needed) → `COMMIT` → `REVIEW` → `DONE`
 
 The stop hook detects the current phase, injects a continuation prompt that tells you to invoke the `phase-runner` skill, and blocks exit. The phase-runner has concrete orchestration recipes for each phase — follow them exactly.
 

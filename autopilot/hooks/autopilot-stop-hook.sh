@@ -128,13 +128,16 @@ case "$PHASE" in
     CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: EXPLORE. Invoke the phase-runner skill to execute the EXPLORE phase. After EXPLORE completes, transition to BUILD and execute it in the same turn."
     ;;
   BUILD)
-    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: BUILD (iteration ${ITERATION}/${MAX_ITERATIONS}). Invoke the phase-runner skill to execute the BUILD phase. After BUILD completes, transition to VERIFY and execute it in the same turn."
+    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: BUILD (iteration ${ITERATION}/${MAX_ITERATIONS}). Invoke the phase-runner skill to execute the BUILD phase. After BUILD completes, transition to TEST and execute it in the same turn."
     ;;
-  VERIFY)
-    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: VERIFY. Invoke the phase-runner skill to execute the VERIFY phase. This runs directly in the main session — do NOT spawn agents for quality gates. After VERIFY, transition to the next phase (COMMIT or FIX) and execute it in the same turn."
+  TEST)
+    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: TEST. Invoke the phase-runner skill to execute the TEST phase — runs quality gates (lint, typecheck, tests, custom checks), preferring scoped runs against affected files when the project's runner supports it. This runs directly in the main session — do NOT spawn agents for quality gates. After TEST, transition to the next phase (VALIDATE if verification_loop is true, otherwise COMMIT, or FIX on failure) and execute it in the same turn."
+    ;;
+  VALIDATE)
+    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: VALIDATE. Invoke the phase-runner skill to execute the VALIDATE phase — actually run the feature end-to-end in the environment. Spawn ONE general-purpose validator agent and write results to validate-results.md. If real bugs are found and validate_attempts < max_validate_attempts, transition to FIX with fix_source=validate (FIX returns to TEST, which will re-enter VALIDATE). If attempts are exhausted or only env-level skips occurred, transition to COMMIT — never deadlock."
     ;;
   FIX)
-    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: FIX (attempt $((FIX_ATTEMPTS + 1))/${MAX_FIX_ATTEMPTS}). Invoke the phase-runner skill to execute the FIX phase. After FIX completes, transition to VERIFY and execute it in the same turn."
+    CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: FIX (attempt $((FIX_ATTEMPTS + 1))/${MAX_FIX_ATTEMPTS}). Read fix_source from state.json — 'test' means quality-gate failures (read quality-gate-results.txt), 'validate' means runtime bugs (read validate-results.md Bugs Found). Invoke the phase-runner skill to execute the FIX phase. After FIX completes, transition to TEST and execute it in the same turn."
     ;;
   COMMIT)
     CONTINUATION="${PREAMBLE} Continue autopilot session ${SESSION_ID}. Session directory: ${SESSION_DIR}. Plugin root: ${PLUGIN_ROOT}. Current phase: COMMIT. Invoke the phase-runner skill to execute the COMMIT phase. This runs directly in the main session — stage, commit, push, create draft PR. After COMMIT, transition to REVIEW and execute it in the same turn."

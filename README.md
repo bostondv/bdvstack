@@ -39,3 +39,12 @@ Then install individual plugins:
 ```text
 /plugin marketplace update bdvstack
 ```
+
+## Recommended companions
+
+`autopilot`'s optional VALIDATE phase drives the browser via [`agent-browser`](https://www.npmjs.com/package/agent-browser) and reads `.browser-check/config.yaml` + `.browser-flows/flows.yml` (the **browser-check** skill format from the Gohan plugin). For UI features:
+
+- Install `agent-browser`: `gohan install agent-browser` or `npm install -g agent-browser && agent-browser install`
+- The first `/autopilot` run that opts into the verification loop on a UI feature will offer to scaffold `.browser-check/` for you with your local dev URL.
+
+If `agent-browser` is missing, browser scenarios in VALIDATE are SKIPPED non-blockingly — the loop still ships the PR, just without runtime UI verification.

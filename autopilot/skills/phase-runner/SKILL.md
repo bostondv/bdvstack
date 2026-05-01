@@ -1,6 +1,6 @@
 ---
 name: phase-runner
-description: Use when executing autonomous autopilot phases — concrete orchestration recipes for EXPLORE, BUILD, VERIFY, FIX, COMMIT, and REVIEW
+description: Use when executing autonomous autopilot phases — concrete orchestration recipes for EXPLORE, BUILD, TEST, VALIDATE, FIX, COMMIT, and REVIEW
 ---
 
 # Phase Runner — Agent Orchestration Engine
@@ -15,7 +15,7 @@ You are the orchestrator for autopilot's autonomous phases. **You never do subst
 4. **Always read agent persona files** from `${CLAUDE_PLUGIN_ROOT}/agents/` and include their content in task prompts
 5. **Tell agents to read files by path** rather than embedding large file contents in prompts — agents have full file access
 6. **Always `TeamDelete` the current team before creating a new one** — a leader can only manage one team at a time. Delete the team after all its tasks complete, before transitioning to the next phase
-7. **Every phase runs immediately when invoked** — do NOT wait for the stop hook to pick up the next phase. After updating state.json, execute the next phase yourself in the same turn if the stop hook continuation tells you to. VERIFY and COMMIT run directly in the main session — they are not agent-driven.
+7. **Every phase runs immediately when invoked** — do NOT wait for the stop hook to pick up the next phase. After updating state.json, execute the next phase yourself in the same turn if the stop hook continuation tells you to. TEST and COMMIT run directly in the main session — they are not agent-driven. (VALIDATE spawns one agent.)
 8. **No sleep polling** — use foreground execution with appropriate timeouts (up to 600000ms) instead of `run_in_background` + sleep loops. For long-running commands, run them foreground with `timeout: 120000`.
 9. **Always use `mode="bypassPermissions"`** when spawning agents — autonomous phases must never prompt for permissions, including writes to `.claude/` paths. Pass `mode="bypassPermissions"` on every TaskCreate call.
 
@@ -54,7 +54,7 @@ bash -c 'source ${CLAUDE_PLUGIN_ROOT}/scripts/lib/state.sh && journal_append "<P
 
 Examples:
 - `journal_append "EXPLORE" "map codebase" "complete" "exploration.md written" "$SESSION_ID"`
-- `journal_append "VERIFY" "typecheck" "fail" "14 errors in 3 files" "$SESSION_ID"`
+- `journal_append "TEST" "typecheck" "fail" "14 errors in 3 files" "$SESSION_ID"`
 - `journal_append "FIX-1" "fix type errors" "partial" "fixed 12/14, 1 new error introduced" "$SESSION_ID"`
 - `journal_append "REVIEW" "code+infra review" "approve" "both reviewers approved" "$SESSION_ID"`
 
@@ -123,7 +123,7 @@ Before executing any phase:
 Read `spec.md` and `exploration.md`. Estimate the scope: how many files need to change and roughly how many lines. If the change is **trivial** (≤3 files, ≤~30 lines, single concern):
 
 - **Skip the full swarm.** Instead, spawn ONE worker agent (frontend or backend as appropriate) with the full spec and exploration context. No test worker, QA tester, or spec guardian needed.
-- After the worker completes, run the simplifier, then transition to VERIFY.
+- After the worker completes, run the simplifier, then transition to TEST.
 - This avoids 6+ agents for a 4-line fix.
 
 For anything larger, continue with the full plan below.
@@ -168,13 +168,31 @@ TaskCreate(
 **Spawn order matters. These three start IMMEDIATELY — they work from spec, not code:**
 
 1. **Test worker** — writes test skeletons from acceptance criteria before code exists
-2. **QA tester** — writes qa-guide.md from spec before code exists. If `browser_testing` is enabled in state.json, include in their prompt: `"Browser testing is ENABLED. In addition to qa-guide.md, write {session_dir}/browser-test-plan.md with concrete browser validation flows. Read the template at ${CLAUDE_PLUGIN_ROOT}/templates/browser-test-plan.md for the expected format. Each flow needs: a route (URL path), validation criteria, step-by-step user actions, and expected outcomes. Cover happy paths first, then error states. As code lands, refine the flows with actual routes, element labels, and form fields from the implementation."`
+2. **QA tester** — writes qa-guide.md from spec before code exists. The QA tester does NOT write a browser test plan — runtime verification is handled by the separate VALIDATE phase if `verification_loop` is enabled in state.json.
 3. **Spec Guardian** — validates spec fidelity as work lands
 
 **Then spawn code workers:**
 
 4. **Frontend workers** — one per independent UI component/page
 5. **Backend workers** — respect dependency chains (models -> DB -> routes -> services). If tasks are sequential, encode that in the task descriptions ("wait for task X to complete before starting").
+
+**If `verification_loop: true` in state.json**, append this block to EVERY worker prompt so VALIDATE has concrete instructions to follow:
+
+> ### Validation guide contributions (verification_loop is on)
+> As you build, contribute to `{session_dir}/validation-guide.md` (create it if missing — use the template at `${CLAUDE_PLUGIN_ROOT}/templates/validation-guide.md`). Append entries under the appropriate sections:
+> - **Prerequisites:** any env vars, services, or auth state needed to exercise your changes (e.g. `DATABASE_URL`, `bento` running, logged-in Chrome session)
+> - **Surfaces to exercise:** for backend — the exact `curl` commands hitting your new/changed endpoints with realistic payloads and the expected status code / response shape. For frontend — the route(s), the user actions to take, and the visible state to assert.
+> - **Out of scope for VALIDATE:** anything that genuinely can't be exercised at runtime (e.g. cron jobs that fire on a schedule, third-party webhook callbacks). VALIDATE will mark these SKIPPED.
+>
+> Be concrete and copy-pasteable. The VALIDATE agent has not seen your code — it only has spec.md, exploration.md, and this guide.
+>
+> **For UI surfaces only**, also append a flow entry to `.browser-flows/flows.yml` (the browser-check format) so VALIDATE can drive it via `agent-browser`. Use the existing structure of the file if entries are already there. Minimal entry:
+> ```yaml
+> <slug-name>:
+>   path: <route you added/changed>
+>   criteria: <what should be visible / what action to take, in plain English>
+> ```
+> If `.browser-flows/flows.yml` doesn't exist, create it with a top-level commented header — the dance-spec preflight only scaffolds when the user opts in. Skip the flows.yml write if the file is absent and `browser_check_scaffolded` is false in state.json.
 
 ### Step 4: Monitor
 
@@ -209,17 +227,27 @@ When ALL worker tasks complete:
 
 ### Step 6: Transition
 
-`TeamDelete` the build team. Log to journal: `journal_append "BUILD" "spawn workers" "complete" "{N} workers completed" "$SESSION_ID"`. Update state: set phase to `VERIFY`. **Execute VERIFY immediately in the same turn — do not stop.**
+`TeamDelete` the build team. Log to journal: `journal_append "BUILD" "spawn workers" "complete" "{N} workers completed" "$SESSION_ID"`. Update state: set phase to `TEST`. **Execute TEST immediately in the same turn — do not stop.**
 
 ---
 
-## VERIFY Phase
+## TEST Phase
 
-**Goal:** Run all quality gates. This phase runs directly in the main session — do NOT spawn agents for this.
+**Goal:** Run all quality gates (lint, typecheck, tests, custom checks). This phase runs directly in the main session — do NOT spawn agents for this. **Always required.** Runtime verification of the feature itself happens in the separate VALIDATE phase.
 
 ### Steps
 
-1. **Discover quality commands from three sources** (in priority order):
+1. **Discover affected files** to scope checks for speed:
+   ```bash
+   git fetch origin main 2>/dev/null || git fetch origin master 2>/dev/null || true
+   BASE=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD origin/master 2>/dev/null || git rev-parse HEAD~1)
+   git diff --name-only "$BASE"...HEAD > {session_dir}/affected-files.txt
+   git diff --name-only >> {session_dir}/affected-files.txt   # uncommitted too
+   sort -u {session_dir}/affected-files.txt -o {session_dir}/affected-files.txt
+   ```
+   If the affected list is empty, skip scoping and run the full suite.
+
+2. **Discover quality commands from three sources** (in priority order):
 
    **a. Custom quality gates from spec.** Read `{session_dir}/spec.md` and look for a `## Custom Quality Gates` section. If found, these are plan-specific verification commands (e.g., specific test files, bundle analysis scripts). Run each command listed. These are IN ADDITION TO standard checks, not a replacement.
 
@@ -230,134 +258,211 @@ When ALL worker tasks complete:
    bash ${CLAUDE_PLUGIN_ROOT}/scripts/check-quality-gates.sh
    ```
 
-   **Context discipline:** Do NOT let raw quality gate output flood your context window. For each check:
+3. **Try scoped invocations first** for speed. The goal: when the project's chosen test/lint runner can target only the affected files, do that instead of running the whole suite.
+
+   You don't know what runner the project uses — **discover it from the project itself**:
+   - Read `exploration.md` for the test/lint commands and the framework names it identifies
+   - Check `CLAUDE.md`, `package.json` scripts, `Makefile`, `pyproject.toml`, `Gemfile`, etc. for the actual commands
+   - Check the runner's `--help` output if you're unsure whether a scoped flag exists (`<runner> --help | head -50`)
+
+   For each discovered command:
+   - If you can identify a documented way to scope it to specific files, prefer that for the affected list (filtered to file types the tool actually accepts).
+   - Otherwise, run it as documented (whole suite).
+   - If a scoped invocation errors out (unknown flag, exits before doing real work), fall back to the unscoped command.
+
+   Rules:
+   - **Custom Quality Gates from the spec are run as written** — never try to scope them.
+   - Typecheck and build steps are usually project-wide; don't try to scope them unless the project's docs explicitly support it.
+   - If in doubt, run the unscoped command. Speed is a nice-to-have; correctness is mandatory.
+
+4. **Run each check.** For each command:
    - Redirect output to a file: `{command} > {session_dir}/quality-checks/{check-name}.txt 2>&1`
    - Check the exit code for pass/fail
    - If failed, read only the **first 20 lines** and **last 10 lines** of the output file — not the full output
    - The generic `check-quality-gates.sh` script already saves per-check output to `{session_dir}/quality-checks/` — read those files selectively
    - Pass the specific output file paths to FIX agents so they can read targeted sections
 
-2. **Browser validation (if enabled).** Check `state.json` for `browser_testing: true` AND verify `{session_dir}/browser-test-plan.md` exists. If both:
+5. **Determine the next phase based on `verification_loop`** in state.json:
+   - If ALL quality gate checks pass:
+     - If `verification_loop: true` → log `journal_append "TEST" "quality gates" "pass" "all checks passed" "$SESSION_ID"`, set phase to `VALIDATE`. **Execute VALIDATE immediately in the same turn.**
+     - Otherwise → log `journal_append "TEST" "quality gates" "pass" "all checks passed" "$SESSION_ID"`, set phase to `COMMIT`. **Execute COMMIT immediately in the same turn.**
+   - If ANY quality gate checks fail → save summary to `{session_dir}/quality-gate-results.txt` (include which checks failed and the paths to their detailed output files in `{session_dir}/quality-checks/`), set `fix_source: "test"` in state.json, log `journal_append "TEST" "quality gates" "fail" "{N} checks failed: {names}" "$SESSION_ID"`, set phase to `FIX`. **Execute FIX immediately in the same turn.**
 
-   a. **Check prerequisites:**
-      ```bash
-      which agent-browser
-      ```
-      If not found, skip browser validation and note it in the results.
+---
 
-   b. **Read the browser test plan** to get the base URL and flows.
+## VALIDATE Phase
 
-   c. **Create a browser validation team** and spawn ONE agent to execute all flows:
-      ```
-      TeamCreate(name="autopilot-browser-{session_id}")
-      ```
+**Goal:** Exercise the feature end-to-end at runtime to prove it actually works — not just that it compiles and unit tests pass. Inspired by the `/go` skill's verify phase. **Only runs if `verification_loop: true` in state.json.**
 
-   d. **Spawn the browser agent** with the plan and agent-browser instructions:
-      ```
-      TaskCreate(
-        team_id={team_id},
-        prompt="You are running browser validation using agent-browser CLI.
+The validator **actually runs the feature in the environment** — starts the service, drives the browser, runs the CLI binary, etc. It does not simulate. If it finds real bugs, the loop tries to fix them and re-validate. If it can't easily resolve (e.g., env issues, attempts exhausted), it surfaces the findings in the draft PR description and continues — never deadlocks the autonomous loop.
 
-        ## Step 0: Discover Project Browser Conventions
-        Before doing anything else, check if this project has specific browser testing setup. Look for:
-        - `.claude/rules/` — any files mentioning browser testing, URLs, ports, or test setup
-        - `CLAUDE.md` or `.claude/CLAUDE.md` — sections about browser testing, dev server, or test environment
-        - `.browser-check/config.yaml` — may have host URL, auth patterns, device settings
-        - `exploration.md` at {session_dir}/exploration.md — may document test patterns
+### Skip check
 
-        Read any files you find. If they contain instructions about how to connect to the app, what URL/port to use, how auth works, or specific testing conventions — **follow those instructions instead of the defaults below.** Project-specific conventions override everything in this prompt.
+If `verification_loop` is not `true` in state.json, this phase should never run — TEST transitions directly to COMMIT in that case. If something invokes VALIDATE anyway, write `validate-results.md` with `Status: skipped` and transition to COMMIT.
 
-        ## Browser Test Plan
-        Read the test plan at: {session_dir}/browser-test-plan.md
+### Steps
 
-        ## Connection
-        Use project conventions if found above. Otherwise, default to Chrome Debug (the user's live logged-in browser session):
-        ```bash
-        agent-browser --auto-connect open about:blank
-        ```
+1. **Read state and detect feature type.** Read `{session_dir}/spec.md`, `{session_dir}/exploration.md`, and `state.json`. Note `validate_base_url`, `validate_attempts`, `max_validate_attempts` (default 3), and `total_fix_attempts` / `max_total_fixes`. Categorize the feature:
 
-        ## Auth Check
-        After navigating to the first URL, check if you hit an auth wall (URL contains '/login' or a login form is visible). If so:
-        - Write to {session_dir}/browser-test-results.md: 'SKIPPED: Auth wall detected. Ensure Chrome Debug is running on port 9222 with a logged-in session.'
-        - Close the browser and stop.
+   | Category | Signals from spec/exploration |
+   |----------|-------------------------------|
+   | **Backend / API** | Spec mentions endpoints, routes, services, DB models. Exploration shows server framework. |
+   | **Frontend / UI** | Spec mentions pages, components, forms, user flows. Exploration shows React/Vue/etc. |
+   | **CLI / script / library** | Spec mentions a binary, command, function, or module API. |
+   | **Pure refactor** | Spec is structural with no behavior change. |
 
-        ## For Each Flow in the Plan
-        1. Navigate: `agent-browser open <base_url><route>`
-        2. Wait: `agent-browser wait --load networkidle`
-        3. Snapshot: `agent-browser snapshot -i` to get interactive element refs (@e1, @e2, etc.)
-        4. Screenshot: `agent-browser screenshot` for baseline evidence
-        5. Execute steps using refs from snapshot:
-           - Click: `agent-browser click @eN`
-           - Fill: `agent-browser fill @eN 'value'`
-           - Select: `agent-browser select @eN 'option'`
-        6. After any action that changes the page, re-snapshot (`agent-browser snapshot -i`) — old refs are invalidated
-        7. Screenshot after significant interactions
-        8. Verify expected outcomes:
-           - Check text: `agent-browser get text @eN`
-           - Check URL: `agent-browser get url`
-           - Wait for content: `agent-browser wait --text 'expected text'`
-           - Eval JS: `agent-browser eval 'document.querySelector(...)'`
+   A feature can span categories (full-stack) — exercise both sides.
 
-        ## Important Rules
-        - Run agent-browser commands ONE AT A TIME — never use run_in_background
-        - Always re-snapshot after navigation or DOM changes
-        - Continue past failures — test all flows even if some fail
-        - If an agent-browser command fails with a connection error, retry ONCE. If it fails again, stop and record the error.
+2. **Create a validation team:**
+   ```
+   TeamCreate(name="autopilot-validate-{session_id}-attempt{validate_attempts}")
+   ```
 
-        ## Output
-        Write results to {session_dir}/browser-test-results.md:
+3. **Spawn ONE general-purpose validator agent** that ACTUALLY runs the feature:
+   ```
+   TaskCreate(
+     team_id={team_id},
+     prompt="You are running end-to-end validation for an autopilot session. Your job is to ACTUALLY RUN the feature and prove it works at runtime — not just that it compiles and tests pass. Quality gates already ran and passed.
 
-        ```markdown
-        # Browser Test Results
+     ## Step 0: Discover Project Conventions
+     Before doing anything else, look for project-specific runtime / browser / dev-server conventions:
+     - `{session_dir}/validation-guide.md` — workers wrote concrete prerequisites, surfaces, and out-of-scope notes here during BUILD. **READ THIS FIRST if it exists** — it's the most precise instructions you'll get.
+     - `.browser-flows/flows.yml` — named browser flows (browser-check format) with paths, scripts, and criteria. If present, prefer running these flows over ad-hoc navigation for UI scenarios.
+     - `.browser-check/config.yaml` — host URL, auth patterns, device settings.
+     - `.claude/rules/` — any files mentioning local dev, URLs, ports, auth, runtime testing
+     - `CLAUDE.md` or `.claude/CLAUDE.md` — sections about dev server, browser, runtime testing
+     - `exploration.md` at {session_dir}/exploration.md
+     - Project README / Makefile / package.json scripts for `dev`, `start`, `serve`
 
-        **Status:** pass | partial | fail | skipped
-        **Flows:** N/M passed
+     If they specify how to connect to the app, what URL/port to use, how auth works — **follow those instructions instead of the generic defaults below.** Project conventions override.
 
-        ## Flow 1: <name>
-        **Route:** <route>
-        **Status:** PASS | FAIL
-        **Screenshots:** <list of screenshot paths>
-        **Notes:** <what happened, failure details if any>
+     ## Context
+     - Spec: {session_dir}/spec.md (READ THIS FIRST)
+     - Codebase conventions: {session_dir}/exploration.md
+     - Validation guide (worker-authored): {session_dir}/validation-guide.md (READ if present)
+     - Feature category (initial guess from orchestrator): {category}
+     - Base URL (if applicable): {validate_base_url or 'unset — discover from project conventions'}
+     - Browser-check configured: {browser_check_configured}
+     - Attempt: {validate_attempts + 1} of {max_validate_attempts}
 
-        ## Flow 2: <name>
-        ...
-        ```
+     ## You MUST Try to Run It
+     Do not just read code and reason about it. Execute it. The whole point of this phase is to catch what static checks miss — runtime errors, broken wiring, wrong responses, missing data.
 
-        Close the browser when done: `agent-browser close`",
-        model="claude-opus-4-6",
-        mode="bypassPermissions"
-      )
-      ```
+     - Backend services: start the dev server (e.g. `bento`, `make run`, `npm run dev`, `cargo run`). If the project has a known way to start it (in CLAUDE.md, README, package.json scripts), use that. Tail logs to a file and check it for boot errors. If the server is already running on the expected port, reuse it.
+     - APIs: hit the new/changed endpoints with `curl` (or `httpie`). Show actual status codes and response bodies.
+     - Frontend / UI: use `agent-browser --auto-connect` to drive the user's already-running Chrome. Boston's standing preference is `agent-browser` over Playwright/DevTools MCP.
+       - **If `.browser-flows/flows.yml` exists**, prefer running its named flows over ad-hoc navigation. Each entry has `path` (or `script`) + `criteria` — open the URL or run the script, then validate against the criteria. Workers may have added new flow entries during BUILD for the surfaces they built.
+       - Workflow: `agent-browser open <url>` → `agent-browser wait --load networkidle` → `agent-browser snapshot -i` → interact via @eN refs → re-snapshot after navigation → screenshot for evidence.
+       - Cover the golden path first, then the edge cases the spec calls out.
+       - Run agent-browser commands ONE AT A TIME — never `run_in_background`.
+     - CLI / script: actually invoke the binary with realistic inputs. Show the output.
+     - Library: write a tiny driver under `{session_dir}/validate-scratch/` that imports the library and exercises the new API.
 
-   e. **Wait for the browser agent** to complete, then read `{session_dir}/browser-test-results.md`.
-   f. `TeamDelete` the browser team.
+     ## Best-Effort Environment Setup
+     - If `agent-browser` is not installed (`which agent-browser` returns nothing) → record SKIPPED for browser scenarios, continue with whatever else you can exercise.
+     - If a dev server fails to start cleanly → capture the boot error in the results, mark related scenarios SKIPPED (with the boot error as the reason), and continue with the rest. Do not paper over.
+     - If you hit an auth wall on a UI flow (URL contains '/login' or login form visible) and Chrome Debug is not logged in → record SKIPPED with the auth-wall reason for that flow, continue with the rest.
+     - If a required dependency is missing → install if it's lightweight and the project clearly expects it (e.g. `npm install`, `uv sync`, `bundle install`); otherwise record SKIPPED with the missing-dep reason.
 
-   Browser test failures are **non-blocking warnings** — they get noted in the PR description but don't prevent COMMIT. This avoids blocking on environment issues (dev server not running, auth not set up, etc.).
+     **Continue past blockers.** Exercise as much as you can. Don't bail on the whole phase because one scenario can't be set up.
 
-3. If ALL quality gate checks pass -> log `journal_append "VERIFY" "quality gates" "pass" "all checks passed" "$SESSION_ID"`, set phase to `COMMIT`. **Execute COMMIT immediately in the same turn.**
-4. If ANY quality gate checks fail -> save summary to `{session_dir}/quality-gate-results.txt` (include which checks failed and the paths to their detailed output files in `{session_dir}/quality-checks/`), log `journal_append "VERIFY" "quality gates" "fail" "{N} checks failed: {names}" "$SESSION_ID"`, set phase to `FIX`. **Execute FIX immediately in the same turn.**
+     ## Rules
+     - **Do NOT modify project source code.** You are exercising, not building. If you find a bug, record it in detail (file paths, error messages, repro steps) — the FIX phase will handle it.
+     - You MAY write throwaway driver scripts under `{session_dir}/validate-scratch/`.
+     - **Never claim success you didn't observe.** Show the actual command output, screenshot path, or curl response. If you couldn't run it, say SKIPPED with the reason. No fabrication.
+
+     ## Output
+     Write results to `{session_dir}/validate-results.md`:
+
+     ```markdown
+     # Validation Results
+
+     **Status:** pass | partial | fail | skipped
+     **Strategy used:** <api / browser / cli / library / refactor-only / mix>
+     **Summary:** <one paragraph: what you exercised and the headline result>
+
+     ## Scenarios
+
+     ### Scenario 1: <descriptive name>
+     **Strategy:** <curl / agent-browser / direct invocation / etc.>
+     **Status:** PASS | FAIL | SKIPPED
+     **Evidence:** <curl response / screenshot path / command output / why skipped>
+     **Notes:** <observed behavior, deviations from spec>
+
+     ### Scenario 2: ...
+
+     ## Bugs Found
+     For each bug, provide enough detail for a fix agent to act on it without re-running validation:
+     - **Bug:** <short title>
+       - **Repro:** <exact command / URL / steps>
+       - **Expected:** <what the spec / common sense says should happen>
+       - **Actual:** <what actually happened, with the error message or response>
+       - **Suspected location:** <file:line if you can identify it from a stack trace>
+     <empty bullet list if no bugs>
+
+     ## Skipped / Not Verifiable
+     <why scenarios were skipped, e.g. 'agent-browser not installed', 'no dev server', 'auth wall', 'env-only feature'>
+     ```
+
+     Close any browser session you opened with `agent-browser close` before finishing.",
+     model="claude-opus-4-6",
+     mode="bypassPermissions"
+   )
+   ```
+
+4. **Wait for the validator** to complete, then read `{session_dir}/validate-results.md`. Increment `validate_attempts` in state.json.
+
+5. `TeamDelete` the validation team.
+
+6. **Decide what to do next based on Status and Bugs Found:**
+
+   - **`pass`, or `partial`/`fail`/`skipped` with empty Bugs Found** (i.e. only env-level skips):
+     - Log `journal_append "VALIDATE" "runtime verification" "<status>" "<one-line summary>" "$SESSION_ID"`
+     - Set phase to `COMMIT`. **Execute COMMIT immediately.**
+
+   - **`fail`/`partial` with non-empty Bugs Found** — real runtime bugs were caught:
+     - **Bail checks** (any of these → log and force-COMMIT, results land in PR description):
+       - `validate_attempts >= max_validate_attempts` (we've tried enough)
+       - `total_fix_attempts >= max_total_fixes` (session-wide fix budget exhausted)
+       - **Stall:** the new validate-results.md has the same Bugs Found list as the previous attempt's (no progress) — compare bug titles
+     - On bail: log `journal_append "VALIDATE" "bail" "force-commit" "reason: {which limit / stall}" "$SESSION_ID"`, set phase to `COMMIT`. **Execute COMMIT immediately.**
+     - Otherwise:
+       - Save a snapshot of the bug list to `{session_dir}/last-validate-bugs.txt` for the next-round stall comparison
+       - Set `fix_source: "validate"` in state.json
+       - Log `journal_append "VALIDATE" "bugs found" "fix" "{N} bugs, attempt {validate_attempts}/{max_validate_attempts}" "$SESSION_ID"`
+       - Set phase to `FIX`. **Execute FIX immediately.** FIX will read the Bugs Found list from validate-results.md, fix them, then transition back to TEST. TEST passes → VALIDATE again → loop.
 
 ---
 
 ## FIX Phase
 
-**Goal:** Fix quality gate failures using targeted agents.
+**Goal:** Fix failures from the previous phase using targeted agents. The previous phase is identified by `fix_source` in state.json:
+
+- `fix_source: "test"` → quality gate failures from TEST. Read `{session_dir}/quality-gate-results.txt` and the per-check `.fail.txt` files.
+- `fix_source: "validate"` → runtime bugs caught by VALIDATE. Read the **Bugs Found** section of `{session_dir}/validate-results.md`.
+
+After fixing, FIX always returns to TEST so quality gates re-run on the modified code (TEST will then transition to VALIDATE if `verification_loop` is true).
 
 ### Steps
 
-1. Read `{session_dir}/quality-gate-results.txt` for failure summary. **Context discipline:** this file should list which checks failed and paths to their detailed output in `{session_dir}/quality-checks/`. Read only the relevant `.fail.txt` files, and even then only the first 30 lines — pass file paths to fix agents so they can read what they need.
-2. Read `fix_attempts`, `max_fix_attempts`, `total_fix_attempts`, `max_total_fixes`, and `last_error_count` from state.json. If `total_fix_attempts` or `max_total_fixes` are missing, initialize them (`total_fix_attempts` = current value of `fix_attempts`, `max_total_fixes` = 5).
-3. **Bail checks — if ANY of these are true, force-COMMIT:**
-   - `fix_attempts >= max_fix_attempts` (per-round limit)
+1. Read `fix_source` from state.json. Default to `"test"` if missing (legacy state files).
+2. Read failure input based on source:
+   - **`fix_source: "test"`** → read `{session_dir}/quality-gate-results.txt` for the failure summary. Read only the relevant `.fail.txt` files (first 30 lines). Pass file paths to fix agents so they can read what they need.
+   - **`fix_source: "validate"`** → read `{session_dir}/validate-results.md`, focusing on the **Bugs Found** section (file:line, repro steps, expected vs actual). Pass the file path to fix agents so they can read the full context.
+3. Read `fix_attempts`, `max_fix_attempts`, `total_fix_attempts`, `max_total_fixes`, and `last_error_count` from state.json. If `total_fix_attempts` or `max_total_fixes` are missing, initialize them (`total_fix_attempts` = current value of `fix_attempts`, `max_total_fixes` = 5).
+4. **Bail checks — if ANY of these are true, force-COMMIT:**
+   - `fix_attempts >= max_fix_attempts` (per-round limit, applies to test-source fixes)
    - `total_fix_attempts >= max_total_fixes` (session-wide limit)
-   - **Stall detected:** count current errors and compare to `last_error_count` in state.json. If the count is identical for 2 consecutive attempts, we're stalled.
+   - **Stall detected (test source only):** count current errors and compare to `last_error_count` in state.json. If the count is identical for 2 consecutive attempts, we're stalled.
+
+   Note: validate-source bail checks live in the VALIDATE phase itself (`validate_attempts >= max_validate_attempts`, bug-list stall). When VALIDATE bails it goes straight to COMMIT without invoking FIX.
 
    On bail: log `journal_append "FIX" "bail" "force-commit" "reason: {which limit hit}" "$SESSION_ID"`, set phase to `COMMIT`. **Execute COMMIT immediately.**
-4. **Otherwise:**
+5. **Otherwise:**
 
    a. **Checkpoint current state** before attempting fixes (so we can revert if the fix makes things worse). Stage and commit all current changes as a checkpoint:
    ```bash
-   git add -A && git commit -m "autopilot: checkpoint before fix attempt ${fix_attempts}" --allow-empty
+   git add -A && git commit -m "autopilot: checkpoint before fix attempt ${fix_attempts} (source: ${fix_source})" --allow-empty
    ```
    Record the checkpoint commit hash for potential revert:
    ```bash
@@ -366,10 +471,12 @@ When ALL worker tasks complete:
 
    b. Create a team:
    ```
-   TeamCreate(name="autopilot-fix-{session_id}-attempt{fix_attempts}")
+   TeamCreate(name="autopilot-fix-{session_id}-attempt{fix_attempts}-{fix_source}")
    ```
 
-   c. Analyze the failure output and categorize errors (type errors, lint errors, test failures, etc.)
+   c. Analyze the failure input and categorize:
+      - Test-source: type errors, lint errors, test failures, etc.
+      - Validate-source: each Bug in the Bugs Found list is its own item.
 
    d. **Think-harder escalation** — if this is the LAST attempt (`fix_attempts == max_fix_attempts - 1`), add this to EVERY fix agent's prompt:
    > "ESCALATION: Previous fix approaches have failed. This is the FINAL attempt before we ship with known issues. Before writing code:
@@ -379,7 +486,9 @@ When ALL worker tasks complete:
    > 4. Consider: would a different architectural approach sidestep these errors entirely?
    > 5. Try a more radical fix — the conservative approach hasn't worked."
 
-   e. For EACH failure category, spawn a targeted fix agent:
+   e. For EACH failure category, spawn a targeted fix agent. Use a source-aware prompt:
+
+   **Test-source prompt:**
    ```
    TaskCreate(
      team_id={team_id},
@@ -399,11 +508,31 @@ When ALL worker tasks complete:
    )
    ```
 
+   **Validate-source prompt:**
+   ```
+   TaskCreate(
+     team_id={team_id},
+     prompt="You are a focused runtime-bug fixer. The end-to-end validator actually ran the feature and caught real bugs that static checks missed.\n\n
+       Project root: {cwd}\n
+       Spec: {session_dir}/spec.md\n
+       Codebase conventions: {session_dir}/exploration.md (READ THIS)\n
+       Validation results: {session_dir}/validate-results.md (READ THE 'Bugs Found' SECTION)\n\n
+       BUG TO FIX:\n{bug title and detail extracted from Bugs Found}\n\n
+       Rules:\n
+       - Use the repro / expected / actual / suspected location from validate-results.md to localize the bug\n
+       - Fix the underlying issue. Do NOT add try/catch to swallow the error or write a workaround\n
+       - Do not modify files another fix agent is working on\n
+       - When complete, list exactly what you changed and how it addresses the bug",
+     model="claude-opus-4-6",
+     mode="bypassPermissions"
+   )
+   ```
+
    **Important:** If multiple agents might touch the same file, merge them into a single agent to avoid conflicts.
 
    f. Wait for all fix agents to complete
 
-   g. **Post-fix regression check:** Before transitioning to full VERIFY, do a quick check — did the fix introduce MORE errors than it resolved? Run the specific failed checks again:
+   g. **Post-fix regression check (test-source only):** Before transitioning to TEST, do a quick check — did the fix introduce MORE errors than it resolved? Run the specific failed checks again:
    ```bash
    # Quick targeted re-check of just the previously-failing gates
    {failed_command} > {session_dir}/quality-checks/{check-name}-postfix.txt 2>&1
@@ -412,16 +541,18 @@ When ALL worker tasks complete:
    ```bash
    git reset --hard ${CHECKPOINT_SHA}
    ```
-   Log: `journal_append "FIX-${fix_attempts}" "fix attempt" "reverted" "errors increased from N to M, reverted to checkpoint" "$SESSION_ID"`, increment fix_attempts, and retry with a different approach.
+   Log: `journal_append "FIX-${fix_attempts}" "fix attempt" "reverted" "errors increased from N to M, reverted to checkpoint" "$SESSION_ID"`, increment fix_attempts, and retry with a different approach. (Validate-source fixes skip this check — TEST will surface any regression on the next pass.)
 
-   h. If errors decreased or stayed the same, squash the checkpoint commit into the fix (keeps history clean):
+   h. If errors decreased or stayed the same (or this is a validate-source fix), squash the checkpoint commit into the fix (keeps history clean):
    ```bash
-   git reset --soft ${CHECKPOINT_SHA}~1 && git add -A && git commit -m "autopilot: fix attempt ${fix_attempts}"
+   git reset --soft ${CHECKPOINT_SHA}~1 && git add -A && git commit -m "autopilot: fix attempt ${fix_attempts} (${fix_source})"
    ```
-   Log: `journal_append "FIX-${fix_attempts}" "fix attempt" "progress" "errors: N->M" "$SESSION_ID"`
+   Log: `journal_append "FIX-${fix_attempts}" "fix attempt" "progress" "source: ${fix_source}, errors: N->M" "$SESSION_ID"`
    i. `TeamDelete` the fix team
-   j. Update state.json: increment `fix_attempts`, increment `total_fix_attempts`, write current error count to `last_error_count`
-   k. Set phase to `VERIFY`. **Execute VERIFY immediately in the same turn.**
+   j. Update state.json:
+      - Test-source: increment `fix_attempts`, increment `total_fix_attempts`, write current error count to `last_error_count`
+      - Validate-source: increment `total_fix_attempts` only (validate's per-round counter is `validate_attempts`, managed by VALIDATE)
+   k. Set phase to `TEST`. **Execute TEST immediately in the same turn.** TEST will run quality gates on the modified code, then transition to VALIDATE if `verification_loop` is true.
 
 ---
 
@@ -444,14 +575,18 @@ When ALL worker tasks complete:
    ## Results
    <!-- Only include if there are measurable outcomes: new metrics, perf numbers, bundle size changes, etc. -->
    What was measured or what metrics were added.
+
+   ## Verification
+   <!-- Only include if `{session_dir}/validate-results.md` exists. Summarize the runtime verification in 2-4 lines: status, strategy, and any bugs found. Link to the results file is unnecessary — paste the relevant Bugs Found / Skipped sections inline. Skip this section entirely if VALIDATE didn't run. -->
    ```
 
    **Rules for PR descriptions:**
    - Lead with **what** and **why**, not a list of files changed
    - Keep the summary to 1-3 sentences — the diff speaks for itself
-   - Omit Architecture/Results sections entirely if they don't apply
+   - Omit Architecture/Results/Verification sections entirely if they don't apply
    - Never dump the spec into the PR body
    - No boilerplate like "This PR implements..." — just state what it does
+   - If `{session_dir}/validate-results.md` exists and contains bugs or skipped scenarios, surface them in the Verification section so the reviewing user sees them on the draft PR
 
 2. Run the commit script:
    ```bash
@@ -567,12 +702,16 @@ digraph phases {
     node [shape=box, style=rounded];
 
     EXPLORE -> BUILD;
-    BUILD -> VERIFY;
-    VERIFY -> COMMIT [label="all pass"];
-    VERIFY -> FIX [label="failures"];
-    FIX -> VERIFY [label="attempts < max\nerrors same or fewer"];
+    BUILD -> TEST;
+    TEST -> VALIDATE [label="all pass\n+ verification_loop=true"];
+    TEST -> COMMIT [label="all pass\n+ verification_loop=false"];
+    TEST -> FIX [label="failures\n(fix_source=test)"];
+    FIX -> TEST [label="fix complete"];
     FIX -> FIX [label="errors increased\n(revert + retry)"];
     FIX -> COMMIT [label="attempts >= max"];
+    VALIDATE -> COMMIT [label="pass / env-only skips"];
+    VALIDATE -> FIX [label="bugs found\n(fix_source=validate)\n+ attempts < max"];
+    VALIDATE -> COMMIT [label="bugs found\n+ attempts >= max\n(non-blocking, in PR body)"];
     COMMIT -> REVIEW;
     REVIEW -> DONE [label="both approve"];
     REVIEW -> BUILD [label="changes requested\n(rounds < max)"];

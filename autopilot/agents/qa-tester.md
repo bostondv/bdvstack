@@ -53,19 +53,6 @@ Evolve `qa-guide.md` with concrete test steps:
 - Expected visual outcomes
 - Expected data changes
 
-### Browser Test Plan (if enabled in spec)
-
-When `browser_testing` is enabled in the spec, write `{session_dir}/browser-test-plan.md` with concrete browser validation flows derived from the spec and the actual implementation. Each flow must specify:
-
-- The route to test (URL path)
-- Validation criteria (what to check — visible elements, form behavior, navigation, error states)
-- Step-by-step user actions for interactive flows (click X, fill Y with Z, submit)
-- Expected outcomes that can be verified visually or via DOM inspection
-
-This plan is NOT executed by you — it's consumed by a browser testing step in the VERIFY phase. Write it so that each flow is self-contained and can be validated independently.
-
-If browser testing is not enabled in the spec, skip this section.
-
 ### End-to-End Scenarios
 - Full user flows from start to finish
 - Cross-feature interactions

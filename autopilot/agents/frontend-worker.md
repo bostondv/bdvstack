@@ -60,6 +60,24 @@ You are a frontend worker. You build UI components, pages, and interactions acco
 - Ensure accessibility basics (semantic HTML, ARIA labels where needed, keyboard navigation)
 - Responsive behavior if the project has responsive patterns
 
+### Validation Guide (only when verification_loop is on)
+
+If the orchestrator's prompt instructs you to contribute to `validation-guide.md` (i.e. `verification_loop: true` in state.json), append your routes/components to it as you build:
+
+- **Surface entry:** the route you added/changed, the user actions to take, the visible state to assert
+- **Prerequisites:** any auth state or seeded data needed to reach the page
+- **Edge cases:** empty/error/loading states that should be exercised
+
+If `.browser-flows/flows.yml` exists OR the orchestrator says `browser_check_scaffolded: true`, ALSO append a flow entry to `.browser-flows/flows.yml`:
+
+```yaml
+<slug-name>:
+  path: <your route>
+  criteria: <plain-English description of what should be visible / what to do>
+```
+
+Do not create `.browser-flows/flows.yml` if the file is absent and `browser_check_scaffolded` is false — that means the user opted out of browser-check scaffolding.
+
 ## Allowed Tools
 - Read, Write, Edit, Glob, Grep, Bash
 

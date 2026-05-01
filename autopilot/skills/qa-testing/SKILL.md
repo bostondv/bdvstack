@@ -42,10 +42,7 @@ QA starts immediately from the spec, before code exists. It does not wait for im
 ## Phase 2: Code-Driven (As Code Lands)
 
 1. Update `qa-guide.md` with concrete test steps based on actual implementation
-2. If `browser_testing` is enabled in spec:
-   - Write `{session_dir}/browser-test-plan.md` with concrete browser validation flows
-   - Each flow: route (URL path), criteria (what to validate), steps (user actions), expected outcomes
-   - Refine flows as code lands — use actual routes, element labels, and form fields from implementation
-   - The plan is executed by a separate browser validation step in VERIFY, not by the QA tester
-3. End-to-end scenarios that cross boundaries (frontend -> API -> DB -> response)
-4. Regression checks: verify existing functionality still works
+2. End-to-end scenarios that cross boundaries (frontend -> API -> DB -> response)
+3. Regression checks: verify existing functionality still works
+
+The end-to-end runtime verification (curling endpoints, driving the browser, exercising the CLI) is handled by the separate VALIDATE phase if `verification_loop` is enabled. The QA tester does not execute it — but `qa-guide.md` should still capture the scenarios that VALIDATE will exercise so they're documented.
