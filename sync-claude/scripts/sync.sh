@@ -145,7 +145,8 @@ list_syncable_files() {
         return
     fi
     # Use rsync dry-run to respect our exclude list, then extract file paths
-    rsync -avn "${EXCLUDES[@]}" "$dir/" "/dev/null" 2>/dev/null \
+    # -L follows symlinks so their content is included in the file list
+    rsync -avnL "${EXCLUDES[@]}" "$dir/" "/dev/null" 2>/dev/null \
         | grep -v '/$' \
         | grep -v '^sending' \
         | grep -v '^total size' \
@@ -293,7 +294,9 @@ merge_one_file() {
 update_sync_base() {
     log_step "Updating sync base snapshot..."
     mkdir -p "$SYNC_BASE"
-    rsync -a --delete "${EXCLUDES[@]}" \
+    # -L follows symlinks so the base snapshot reflects the referent content,
+    # matching what push writes to dotfiles.
+    rsync -aL --delete "${EXCLUDES[@]}" \
         "$CLAUDE_DIR/" "$SYNC_BASE/"
 }
 
@@ -325,8 +328,11 @@ sync_push() {
     log_step "Copying $CLAUDE_DIR → $DOTFILES_CLAUDE"
     mkdir -p "$DOTFILES_CLAUDE"
 
-    # Merge into dotfiles (no --delete, preserves files from other machines)
-    rsync -av "${EXCLUDES[@]}" \
+    # Merge into dotfiles (no --delete, preserves files from other machines).
+    # -L follows symlinks so we sync the pointed-to content — avoids rsync
+    # exit 23 when a local symlink collides with a real dir already in dotfiles
+    # (e.g., ~/.claude/skills/{find-skills,gh-stack} → ~/.agents/skills/…).
+    rsync -avL "${EXCLUDES[@]}" \
         "$CLAUDE_DIR/" "$DOTFILES_CLAUDE/"
 
     # Strip machine-specific env vars from settings.json before committing
