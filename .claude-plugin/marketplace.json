@@ -67,6 +67,15 @@
       "author": {
         "name": "bostondv"
       }
+    },
+    {
+      "name": "using-gh-stack",
+      "source": "./using-gh-stack",
+      "description": "Skill for driving instacart/gh-stack — rebases, edits, and manages chains of dependent (stacked) pull requests.",
+      "version": "1.0.0",
+      "author": {
+        "name": "bostondv"
+      }
     }
   ]
 }
