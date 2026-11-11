@@ -1,0 +1,7 @@
+{
+  "pollSeconds": 300,
+  "tickMinutes": { "ciRunning": 10, "recent": 30, "quiet": 60 },
+  "recentMinutes": 120,
+  "maxAttemptsPerCheckPerHour": 2,
+  "staleDays": 5
+}

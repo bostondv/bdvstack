@@ -1,0 +1,10 @@
+# Personal writing. This corpus is Boston's own prompts, Slack messages and
+# document excerpts. It is not shareable, so it never goes in the repo.
+#
+# Only the scripts and style-card.md are tracked.
+
+corpus/
+raw/
+profile.md
+manifest.json
+stats.json

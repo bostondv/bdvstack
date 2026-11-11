@@ -1,0 +1,36 @@
+# Instructions and scripts belong here. Working data does not.
+#
+# These are a net, not the rule: nothing below should ever be produced by a
+# clean clone, and if one reappears it is because an agent wrote runtime state
+# into the checkout. Delete it and keep going.
+
+# --- skill runtime state -------------------------------------------------
+**/state/*
+!**/state/README.md
+
+# --- coordinator and pr-watch bookkeeping --------------------------------
+queue.json
+prs.json
+pending.json
+events.jsonl
+watch.json
+surfaced.json
+decisions.json
+LEDGER.md
+WRITES.md
+NOTICES.md
+
+# --- agent memory working data -------------------------------------------
+agent-skills/agent-memory/LESSONS.md
+agent-skills/agent-memory/lessons/
+agent-skills/agent-memory/proposed/*
+!agent-skills/agent-memory/proposed/README.md
+
+# --- generated machine jobs ----------------------------------------------
+*.plist
+*.log
+
+# --- local noise ---------------------------------------------------------
+.DS_Store
+__pycache__/
+*.pyc

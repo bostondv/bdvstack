@@ -1,0 +1,7 @@
+# Real documents stay on the machine that has them. The harness is shareable;
+# the fixtures it scores are confidential.
+fixtures/
+rewrites/
+archive/
+runs/
+report.html
