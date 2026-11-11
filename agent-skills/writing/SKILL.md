@@ -72,8 +72,8 @@ Reference these only when the trigger word shows up; don't restate them here.
 
 | Words that pull it in | File |
 | --- | --- |
-| PR body, reviewer, review comment, merge | `$SKILLS_ROOT/pr-description/SKILL.md` |
-| preference, mistake, correction, "you did this before" | `$SKILLS_ROOT/agent-memory/RULES.md`, `LESSONS.md` |
+| PR body, reviewer, review comment, merge | `PR descriptions` below, in this file |
+| preference, mistake, correction, "you did this before" | `$SKILLS_ROOT/agent-memory/RULES.md`, `$SKILLS_ROOT/agent-memory/LESSONS.md` |
 | score, metric, did this improve, eval | `$SKILLS_ROOT/writing/eval/README.md` |
 | sound like me, my voice, write this as me | `$SKILLS_ROOT/writing/voice/style-card.md` (read the register that matches the artifact) |
 
