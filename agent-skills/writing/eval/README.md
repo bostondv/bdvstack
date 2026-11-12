@@ -16,18 +16,11 @@ Each run writes `runs/<timestamp>-<version>.json`, prints a table with the delta
 python3 check_links.py draft.md      # exit 1 and prints each unlinked ticket, PR or path
 ```
 
-Tickets (`[A-Z]{2,6}-\d+`), PR references (`word#123`) and backticked file paths must all sit inside a markdown link whose text is the name. `summary-unlinked.md` is the fixture for it: 7 hits as written, clean once rewritten.
+Tickets (`[A-Z]{2,6}-\d+`), PR references (`word#123`) and backticked file paths must all sit inside a markdown link whose text is the name. A short summary with bare ticket and PR references is the fixture for it: several hits as written, clean once rewritten.
 
 ## The report
 
-`report.py` builds one static page from the fixtures and every directory in `rewrites/`. Arms are discovered, so dropping in `rewrites/v4/` puts it on the next run with no other change. The page is the review artifact: metrics tables plus the actual text of every fixture under every arm, side by side.
-
-Publishing is one command:
-
-```bash
-python3 report.py
-pastry update <slug> --no-add -f report.html -t "Writing eval"
-```
+`report.py` writes `eval/report.html`: metrics tables plus the actual text of every fixture under every arm, side by side. Arms are discovered, so dropping in `rewrites/v4/` puts it on the next run with no other change. The file is written locally and that is the end of it.
 
 ## Arms
 
@@ -35,18 +28,9 @@ There are two arms: `baseline` (the source documents) and `current` (the rules i
 
 ## Fixtures
 
-Five real documents, trimmed to keep scoring cheap:
+Put whatever documents you want to score into `fixtures/`, one file per document. Each one needs a matching file under `rewrites/<version>/`, with the same filename.
 
-| Fixture | Source | Words |
-| --- | --- | ---: |
-| `erd-nitro.md` | internal design doc | 434 |
-| `pr-897113.md` | internal PR description | 423 |
-| `pr-902018.md` | internal PR description | 905 |
-| `status-web-platform.md` | internal status update | 371 |
-| `proposal-writing.md` | internal proposal | 354 |
-| `summary-unlinked.md` | a status summary with bare ticket and PR references | 68 |
-
-`rewrites/<version>/` holds the same five files rewritten under that version of the rules. The baseline is the fixture as it stands, which is the current AGENTS.md behaviour.
+The baseline is the fixture as it stands. The rewrite is the same document under that version of the rules.
 
 ## Metrics
 
