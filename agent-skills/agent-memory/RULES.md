@@ -19,7 +19,6 @@ Both must read standalone: nothing local references a Linear object by bare id w
 - Everything you create gets **Boston** as lead (projects) or assignee (issues).
 - Never leave a project or issue unowned.
 - Never assign anyone else unless Boston names them.
-  - Standing exception: **Thomas Nakagawa** on Froth hardening.
 
 ## What needs Boston's yes first
 
@@ -29,6 +28,9 @@ Put these in the queue as a proposal:
 - Assigning work to someone other than Boston.
 - Changing a date.
 - Closing someone else's ticket.
+- Publishing anything outside a repo that is private and his alone — a public repo, a
+  shared doc, a package, a page. Confirm the destination is private before staging and
+  show him the file list. Public is permanent; a revert does not undo it.
 
 Proposal format: title `Proposed: <thing>`, `why` = the one reason it should exist, options = **Approve / No / Modify**. Two sentences max.
 
@@ -61,6 +63,12 @@ This applies to every write, not just creation.
 
 Tell Boston when work **finishes**. No progress narration.
 
+- **Check for finished work before answering, not on a schedule.** Look at what completed
+  since the last message, then reply. Anything already finished leads the reply. A
+  periodic sweep is a backstop for when nobody is talking, not the mechanism.
+- **A finished thing he has to ask about is a miss, not a delay.** Anything reported
+  somewhere he wasn't looking may as well not have been reported.
+
 - Kinds: `done`, `blocked`, `failed`, `scope`, `info`.
 - Anything needing his review or a decision becomes a queue card. `info` only writes an activity line.
 - Target is `POST /notify` with `{from, kind, id, title, link, note}` once it exists. Until then, a `done` item in `queue.json` so it lands in his Waiting on you column — not just a ledger line.
@@ -92,3 +100,16 @@ He reads the queue as a list and greps it in a terminal.
 A chat owns one feature, one ticket, or one PR. Its own worktree, its own branch. Never shared with another chat. If the work grows a second PR, that's a second chat.
 
 A task chat does not route other work and does not manage sibling chats. It reports its result to the coordinator and stops.
+
+## Changing the rules themselves
+
+Moving, merging or rewriting instruction files is a code change with worse tooling.
+
+- Diff the old text against the new before calling it done, and list every line that did
+  not survive. Rules that lived only in prose are the ones that vanish.
+- A skill must stand on its own: no references to other skills, no assumed install path.
+  If it only works from `~/.codex/skills`, it is not a skill, it is a config.
+- Anything the old text said that the new text does not is a regression until he says
+  otherwise.
+
+- **No tooling or eval work in the coordinator thread.** Scripts, skill edits, backtests, doc rewrites: all go to a task chat, even when the edit looks like one line. "It's faster to just do it" is the failure mode.
