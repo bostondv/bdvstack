@@ -1,59 +1,36 @@
 ---
 name: writing
-description: Rules for anything a human reads: replies, status updates, PR descriptions, docs, commit messages. Twelve rules, each checkable before sending.
+description: Rules for anything a human reads: replies, status updates, PR descriptions, docs, commit messages. Check the five hard rules before sending; read the linked files only when the task calls for them.
 ---
-
-## Paths
-
-`SKILLS_ROOT` is where these skills are installed. It defaults to `~/.codex/skills`
-(Codex). On Claude Code, or anywhere else, set it once:
-
-```bash
-export SKILLS_ROOT="$HOME/.claude/skills"   # or wherever the skills live
-```
-
-Scripts fall back to `$HOME/.codex/skills` when it is unset, so an unmodified Codex
-install works with no setup.
 
 # Writing
 
-Applies to everything sent, at any length.
+## The five that decide it
 
-## Answer first
+Check these on every reply, at any length. Five failures, not twelve.
 
-1. **Sentence one names the decision, the outcome, or what changed.** Read it alone. If the reader learns what happened or what to do, it passes. If it says what you looked at, it fails.
-2. **One or two sentences is a whole reply** unless the reader cannot act without more. Longer, say what else exists and let them ask.
-3. **The last line is not a summary, a recap, or an offer to help.** End on the last thing worth knowing.
+1. **Sentence one names the decision, the outcome, or what changed.** Read it alone. If it says what you looked at, rewrite.
+2. **No sentence over 25 words.** Split at the first "and", "but", or "which".
+3. **No paragraph over 3 sentences.** The fourth becomes a bullet, a table row, or disappears.
+4. **Every reference is a link, and the link text is the name.** `[WEB-52](url)`, never bare `WEB-52`.
+5. **No em-dashes.** A comma, a colon, or a full stop.
 
-## Shape
+One or two sentences is a whole reply unless the reader cannot act without more. Do not end on a summary or an offer to help.
 
-4. **No sentence over 25 words.** Split at the first "and", "but", or "which".
-5. **No paragraph over 3 sentences.** The fourth is a bullet, a table row, or gone.
-6. **Every number, version, or tally is one the reader acts on.** Others go.
-7. **Every reference is a link, and the link text is the name.** `[WEB-52](url)`, never bare `WEB-52`; `[the page](url)`, never `the page: url`.
+## The rest
 
-## Visuals
+- **Numbers only when the reader acts on them.** Test tallies, versions, line counts: cut unless they change a decision.
+- **Three or more interacting pieces: build the visual before the explanation.** Count services, states, components, steps. HTML for flows, mermaid for labelled graphs.
+- **Proposals show old and new side by side**, changed bits marked, one line on what it fixes.
+- **No ASCII or box-drawing diagrams.** If it needs a picture, it is HTML or mermaid.
+- **First person, plain words.** "I couldn't reproduce it", not "it may not be reproducible". Never utilize, facilitate, leverage, remediate.
 
-8. **Three or more interacting pieces: build the visual before writing the explanation.** Count services, states, components, steps. HTML for flows, mermaid for labelled graphs.
-9. **Proposals show old and new side by side,** changed bits marked, one line on what it fixes.
-10. **No ASCII, box-drawing, or arrow diagrams.** If it needs a picture, it is HTML or mermaid.
+## When the task needs more
 
-## Voice
+Read these only when the trigger applies. Paths are relative to this skill.
 
-11. **No em-dashes.** Zero. Use a comma, a colon, or a full stop.
-12. **First person, plain words.** "I couldn't reproduce it", not "it may not be reproducible". Use, help, fix, cut, show; never utilize, facilitate, leverage, remediate.
-
-## PR descriptions
-
-| Heading | Contents | Required |
-| --- | --- | --- |
-| `## Why` | the problem, trigger, or decision behind the change | yes |
-| `## What` | what changed and how it works | yes |
-| `## Demo` | screenshot, gif, query, or command that shows it working | optional |
-| `## Additional` | links to docs, tickets, designs, notes, known limits | optional |
-
-Fill those sections with the rules above. Don't replace the headings with prose.
-
-## Sounding like Boston
-
-`voice/style-card.md`, by register. Word choice and stance come from his prompts; structure comes from his PR bodies.
+| Trigger | File |
+| --- | --- |
+| writing or revising a PR body | `pr-template.md` |
+| the artifact must sound like Boston | `voice/style-card.md`, the register that matches |
+| measuring whether rules changed anything | `eval/README.md` |

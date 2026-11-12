@@ -182,6 +182,7 @@ METRICS = [
     ("figures", "figures", "higher"),
     ("first_actionable_word", "first actionable word", "lower"),
     ("em_dashes", "em dashes", "either"),
+    ("unlinked_refs", "unlinked ticket/PR refs", "lower"),
     ("ascii_art_blocks", "ASCII/box diagrams", "lower"),
     ("pr_template_pct", "PR template headings %", "higher"),
     ("flesch", "Flesch reading ease", "higher"),
@@ -212,8 +213,11 @@ def run(version):
         except (KeyError, ValueError):
             prev_agg = None
 
-    print(f"\nwriting rules {version} — {len(before)} fixtures — {ts}")
-    print(f"{'metric':34} {'before':>8} {'after':>8} {'delta':>8}  {'vs prev':>8}")
+    print(f"\nwriting rules: {version}    documents: {len(before)}    {ts}")
+    print("  source = the original document, as written today")
+    print(f"  rewritten = the same document after applying {version}")
+    print(f"  delta = rewritten minus source (lower is better for every row except tables, figures, Flesch, PR headings)")
+    print(f"{'metric':34} {'source':>8} {'rewritten':>8} {'delta':>8}  {'vs prev':>8}")
     for key, label, direction in METRICS:
         bv, av = a.get(key, 0), b.get(key, 0)
         d = av - bv

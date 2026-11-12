@@ -24,7 +24,7 @@ The honest summary: 42,762 human words out of 135,700 collected. 32,127 are 2020
 ## Regenerating
 
 1. `raw/prs.json`, `raw/prs-asc-*.json` — `gh api search/issues?q=repo:instacart/carrot+author:bostondv+type:pr`.
-2. `raw/prompts.md` — user turns scraped from your agent's session logs, e.g. `${SESSIONS_DIR:-$HOME/.codex/sessions}/**/*.jsonl`. Typed or dictated by him, never assistant output. Re-run the scrape to pick up new turns.
+2. `raw/prompts.md` — user turns scraped from your agent's session logs, e.g. the agent session log directory, configurable via `SESSIONS_DIR`. Typed or dictated by him, never assistant output. Re-run the scrape to pick up new turns.
 3. `raw/slack.md` — Slack search results from public channels, plus DMs he approved. Keep it sampled, not exhaustive.
 4. `raw/corrections.md` — his own corrections to assistant drafts. Append new ones; this is the highest-value file.
 5. `python3 build_corpus.py && python3 stats.py`.

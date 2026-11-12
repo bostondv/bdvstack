@@ -3,12 +3,20 @@
 Deterministic scoring for writing-rule changes. No model in the loop, no dependencies.
 
 ```bash
-./run.sh v2                  # score fixtures against rewrites/v2, print table, write runs/
-python3 score.py compare v1 v2   # one table: baseline, v1, v2 side by side
+./run.sh current            # score fixtures against rewrites/current, print table, write runs/
+python3 score.py compare baseline current   # one table: original vs current rules
 ./run.sh v3 --rewrite        # generate rewrites/v3 with the current SKILL.md, then score
 ```
 
 Each run writes `runs/<timestamp>-<version>.json`, prints a table with the delta against the previous run of the same version, and regenerates `report.html`. Nothing is overwritten, so history stays.
+
+## Checking a draft
+
+```bash
+python3 check_links.py draft.md      # exit 1 and prints each unlinked ticket, PR or path
+```
+
+Tickets (`[A-Z]{2,6}-\d+`), PR references (`word#123`) and backticked file paths must all sit inside a markdown link whose text is the name. `summary-unlinked.md` is the fixture for it: 7 hits as written, clean once rewritten.
 
 ## The report
 
@@ -23,27 +31,22 @@ pastry update <slug> --no-add -f report.html -t "Writing eval"
 
 ## Arms
 
-A rules version is an arm. Today: `v1` (first rules), `v2` (reference-doc changes), `v3` (readability pass). Going forward the interesting comparison is `baseline` against whichever arm is newest; older arms stay for history.
+There are two arms: `baseline` (the source documents) and `current` (the rules in force). Superseded arms are deleted once their numbers are recorded in `runs/`.
 
 ## Fixtures
 
-Not committed. Real documents are confidential, so they stay on your machine and
-`.gitignore` keeps them out. Five of them is enough to score a rule change:
+Five real documents, trimmed to keep scoring cheap:
 
-| Fixture | Source |
-| --- | --- |
-| `erd-nitro.md` | one internal design doc |
-| `pr-897113.md` | a real PR description |
-| `pr-902018.md` | a longer PR description |
-| `status-web-platform.md` | a weekly status update |
-| `proposal-writing.md` | a proposal doc |
+| Fixture | Source | Words |
+| --- | --- | ---: |
+| `erd-nitro.md` | `~/docs/nitro-data-router-poc/DESIGN.md` | 434 |
+| `pr-897113.md` | carrot#897113 description | 423 |
+| `pr-902018.md` | carrot#902018 description | 905 |
+| `status-web-platform.md` | this week's coordinator status | 371 |
+| `proposal-writing.md` | `~/docs/writing-guidance/proposal.md` | 354 |
+| `summary-unlinked.md` | a status summary with 4 bare ticket and PR references | 68 |
 
-Drop them in `fixtures/`, trimmed to a few hundred words each to keep scoring cheap.
-`rewrites/<version>/` holds the same five files rewritten under that version of the
-rules. The baseline is the fixture as it stands.
-
-Nothing here scores anything until `fixtures/` exists, so treat the scripts as a
-harness you point at your own documents.
+`rewrites/<version>/` holds the same five files rewritten under that version of the rules. The baseline is the fixture as it stands, which is the current AGENTS.md behaviour.
 
 ## Metrics
 
@@ -71,7 +74,7 @@ Known limits: the first-actionable detector is keyword-based, and sentence split
 
 ## What a good delta looks like
 
-Using v2 as the reference point:
+Using the current arm as the reference point:
 
 - Words down 40–60% without losing the decision.
 - Longest sentence down to 25 words or fewer.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Score a rules version against the committed fixtures.
-#   ./run.sh v2                 # score fixtures vs rewrites/v2, compare to the last run
-#   ./run.sh v3 --rewrite       # also regenerate rewrites/v3 with the current SKILL.md
+#   ./run.sh current            # score fixtures vs rewrites/current, compare to the last run
+#   ./run.sh candidate --rewrite  # also regenerate rewrites/candidate with the current SKILL.md
 set -euo pipefail
 cd "$(dirname "$0")"
 V="${1:-}"
@@ -14,7 +14,7 @@ if [ "${2:-}" = "--rewrite" ]; then
     out="rewrites/$V/$(basename "$f")"
     echo "rewriting $f -> $out"
     codex exec --skip-git-repo-check \
-      "Rewrite the document on stdin following ${SKILLS_ROOT:-$HOME/.codex/skills}/writing/SKILL.md exactly. Keep every fact. Output markdown only." \
+      "Rewrite the document on stdin following ../SKILL.md exactly. Keep every fact. Output markdown only." \
       < "$f" > "$out"
   done
 fi
