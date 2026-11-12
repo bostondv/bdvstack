@@ -39,12 +39,12 @@ Five real documents, trimmed to keep scoring cheap:
 
 | Fixture | Source | Words |
 | --- | --- | ---: |
-| `erd-nitro.md` | `~/docs/nitro-data-router-poc/DESIGN.md` | 434 |
-| `pr-897113.md` | carrot#897113 description | 423 |
-| `pr-902018.md` | carrot#902018 description | 905 |
-| `status-web-platform.md` | this week's coordinator status | 371 |
-| `proposal-writing.md` | `~/docs/writing-guidance/proposal.md` | 354 |
-| `summary-unlinked.md` | a status summary with 4 bare ticket and PR references | 68 |
+| `erd-nitro.md` | internal design doc | 434 |
+| `pr-897113.md` | internal PR description | 423 |
+| `pr-902018.md` | internal PR description | 905 |
+| `status-web-platform.md` | internal status update | 371 |
+| `proposal-writing.md` | internal proposal | 354 |
+| `summary-unlinked.md` | a status summary with bare ticket and PR references | 68 |
 
 `rewrites/<version>/` holds the same five files rewritten under that version of the rules. The baseline is the fixture as it stands, which is the current AGENTS.md behaviour.
 

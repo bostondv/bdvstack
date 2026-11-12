@@ -32,5 +32,4 @@ Read these only when the trigger applies. Paths are relative to this skill.
 | Trigger | File |
 | --- | --- |
 | writing or revising a PR body | `pr-template.md` |
-| the artifact must sound like Boston | `voice/style-card.md`, the register that matches |
 | measuring whether rules changed anything | `eval/README.md` |
