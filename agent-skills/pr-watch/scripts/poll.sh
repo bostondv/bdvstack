@@ -7,7 +7,7 @@
 #
 #   ./poll.sh            normal run (the launchd job calls this every 5 minutes)
 #   ./poll.sh -v         say what it did
-#   ./poll.sh <key>      poll one entry, e.g. instacart/carrot#904995
+#   ./poll.sh <key>      poll one entry, e.g. owner/repo#123
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

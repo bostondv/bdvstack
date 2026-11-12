@@ -42,7 +42,7 @@ queue is involved.
    `<KEY>`, `<PR>`, `<AUTOMATION>`, create it with `automation_update`
    (`kind: heartbeat`, `rrule: FREQ=MINUTELY;INTERVAL=10`).
 
-3. **One line to the user**: `Watching carrot#904995 — I'll handle CI and review
+3. **One line to the user**: `Watching repo#123 — I'll handle CI and review
    comments, and stop when it merges.`
 
 First run only, if the 5-minute poller isn't installed yet:
@@ -111,19 +111,19 @@ back on the next tick. `--handled` clears it once it's resolved.
 ```bash
 # register (from the PR's worktree)
 ${SKILLS_ROOT:-$HOME/.codex/skills}/pr-watch/scripts/register.sh --pr 904995 --thread 01a1c227-...
-#   instacart/carrot#904995
-#   automation: pr-watch-carrot-904995
+#   owner/repo#123
+#   automation: pr-watch-repo-123
 
 # what the watchdog knows
 ${SKILLS_ROOT:-$HOME/.codex/skills}/pr-watch/scripts/status.sh
 # PR                     state    pending  blocked  worktree
-# instacart/carrot#904995 OPEN     yes      no       /path/to/your/worktree
+# owner/repo#123 OPEN     yes      no       /path/to/your/worktree
 
 # after a tick
-${SKILLS_ROOT:-$HOME/.codex/skills}/pr-watch/scripts/status.sh --handled instacart/carrot#904995
+${SKILLS_ROOT:-$HOME/.codex/skills}/pr-watch/scripts/status.sh --handled owner/repo#123
 
 # needs a decision
-${SKILLS_ROOT:-$HOME/.codex/skills}/pr-watch/scripts/status.sh --block instacart/carrot#904995 --note "two ways to fix the schema"
+${SKILLS_ROOT:-$HOME/.codex/skills}/pr-watch/scripts/status.sh --block owner/repo#123 --note "two ways to fix the schema"
 
 # poll by hand (launchd does this every 5 minutes)
 ${SKILLS_ROOT:-$HOME/.codex/skills}/pr-watch/scripts/poll.sh -v

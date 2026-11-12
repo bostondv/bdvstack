@@ -5,7 +5,7 @@
 #   ./install.sh --remove   stop and remove
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LABEL="${PR_WATCH_LABEL:-com.instacart.pr-watch.poll}"   # override to avoid clashes
+LABEL="${PR_WATCH_LABEL:-com.example.pr-watch.poll}"   # override to avoid clashes
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 POLL="$HERE/poll.sh"
 SECONDS_BETWEEN=$(python3 -c 'import json,os

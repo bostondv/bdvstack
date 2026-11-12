@@ -2,7 +2,7 @@
 # Register a PR with this skill's own registry. Run it right after you open a PR.
 #
 #   ./register.sh --pr 904995 --thread <thread id> [--worktree <checkout>]
-#                 [--branch bostondv/x] [--repo owner/name] [--pipeline slug]
+#                 [--branch feature/x] [--repo owner/name] [--pipeline slug]
 #
 # repo and branch come from the PR itself; worktree defaults to where you are.
 set -uo pipefail
